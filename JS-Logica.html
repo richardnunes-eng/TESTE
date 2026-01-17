@@ -1056,30 +1056,6 @@ window.renderDetailedModal = function(id) {
             let hiddenContent = '';
             let detailsId = `stop-details-${index}`;
 
-if (hasValue || hasNfe || hasEndereco || s.hora || s.saida || s.permanencia !== null) {
-                let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
-                let nfeStr = hasNfe ? s.nfe : '-';
-                let enderecoStr = hasEndereco ? enderecoCompleto : '-';
-                let chegadaStr = s.hora ? s.hora : '-';
-                let saidaStr = s.saida ? s.saida : '-';
-                let permanenciaStr = '-';
-                if (s.permanencia !== null && s.permanencia !== undefined) {
-                    let hh = Math.floor(s.permanencia / 60);
-                    let mm = s.permanencia % 60;
-                    permanenciaStr = hh > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${mm} min`;
-                }
-
-                hiddenContent = `<div id="${detailsId}" class="stop-extended-details" style="display:none;">` +
-                    `<div class="det-item"><span class="det-label">Sequência:</span> <span class="det-val">${s.seq}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Status:</span> <span class="det-val">${s.status}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Chegada:</span> <span class="det-val">${chegadaStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Saída:</span> <span class="det-val">${saidaStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Permanência:</span> <span class="det-val">${permanenciaStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Valor:</span> <span class="det-val">${valStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Endereço completo:</span> <span class="det-val">${enderecoStr}</span></div>` +
-                `</div>`;
-            }<<<<<<< codex/add-location-details-to-green-mile-kif596
             if (hasValue || hasNfe || hasEndereco || s.hora || s.saida || s.permanencia !== null) {
                 let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
                 let nfeStr = hasNfe ? s.nfe : '-';
@@ -1103,13 +1079,6 @@ if (hasValue || hasNfe || hasEndereco || s.hora || s.saida || s.permanencia !== 
                     `<div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div>` +
                     `<div class="det-item"><span class="det-label">Endereço completo:</span> <span class="det-val">${enderecoStr}</span></div>` +
                 `</div>`;
-=======
-            if (hasValue || hasNfe || hasEndereco) {
-                let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
-                let nfeStr = hasNfe ? s.nfe : '-';
-                let enderecoStr = hasEndereco ? enderecoCompleto : '-';
-                hiddenContent = `<div id="${detailsId}" class="stop-extended-details" style="display:none;"><div class="det-item"><span class="det-label">Valor:</span> <span class="det-val">${valStr}</span></div><div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div><div class="det-item"><span class="det-label">Endereço completo:</span> <span class="det-val">${enderecoStr}</span></div></div>`;
->>>>>>> main
             }
             let clientNameHtml = (hiddenContent !== '') ? `<span class="client-name-link" onclick="toggleStopDetails('${detailsId}')">${s.cliente} <span style="font-size:10px">▼</span></span>` : s.cliente;
 
