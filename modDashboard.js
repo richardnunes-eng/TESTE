@@ -1,9 +1,9 @@
 /**
  * ==============================================================================
- * ARQUIVO: modDashboard.gs (VERSÃO CORRIGIDA - NFE SIMPLIFICADA)
+ * ARQUIVO: modDashboard.gs (VERSÃO CORRIGIDA - NFE E VALOR SIMPLIFICADOS)
  * ==============================================================================
- * ✅ CORREÇÃO: Chave de NFe agora é PLANO + CÓDIGO DO CLIENTE (simples)
- * ✅ Valor vem do plannedSize3 do GreenMile
+ * ✅ CORREÇÃO: Chave de NFe = PLANO + CÓDIGO DO CLIENTE (simples)
+ * ✅ CORREÇÃO: Valor = stop.plannedSize3 direto do GreenMile
  * ==============================================================================
  */
 
@@ -30,7 +30,7 @@ function include(filename) {
 function getDashboardData(modo) {
   try {
     const cache = CacheService.getScriptCache();
-    const cacheKey = "payload_dashboard_v5";
+    const cacheKey = "payload_dashboard_v6";  // ✅ Nova versão do cache
     const CACHE_DURATION = 600;
     
     // Fast path com cache
@@ -98,16 +98,15 @@ function getDashboardData(modo) {
     }
 
     // ========================================================================
-    // ✅ CORREÇÃO: Mapeamento NFe SIMPLIFICADO (PLANO + CÓDIGO CLIENTE)
+    // ✅ MAPEAMENTO NFE SIMPLIFICADO: PLANO|CLIENTE => NFE
     // ========================================================================
-    const mapNfeByPlanoCliente = new Map();  // Chave: "PLANO|CLIENTE"
-    const mapNfeByClienteOnly = new Map();   // Fallback: só código do cliente
+    const mapNfe = new Map();
 
     if (colMain.PLANO !== -1 && colMain.ID_GM_LOC !== -1 && colMain.CHECKLISTS !== -1) {
       for (let i = 1; i < dataMainDisplay.length; i++) {
-        // Pegar o plano (route.key) da linha
+        // Pegar o plano (route.key) - normalizado
         const planoFull = String(dataMainDisplay[i][colMain.PLANO] || "").trim();
-        const planoChave = normalizarChave(planoFull.split('-')[0]); // Ex: "610123"
+        const planoChave = planoFull.split('-')[0].replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
         
         // Código do cliente (location.key)
         const clientId = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
@@ -115,24 +114,24 @@ function getDashboardData(modo) {
         // Número da NFe
         const nfe = String(dataMainDisplay[i][colMain.CHECKLISTS] || "").trim();
         
-        if (nfe && nfe !== "" && nfe !== "---" && nfe !== "-") {
-          // ✅ CHAVE PRINCIPAL: PLANO + CLIENTE
-          if (planoChave && clientId) {
-            const chavePrincipal = `${planoChave}|${clientId}`;
-            addNfeToMap(mapNfeByPlanoCliente, chavePrincipal, nfe);
-            console.log(`📝 NFe mapeada: ${chavePrincipal} => ${nfe}`);
-          }
+        // ✅ CHAVE SIMPLES: PLANO|CLIENTE
+        if (planoChave && clientId && nfe && nfe !== "" && nfe !== "---" && nfe !== "-") {
+          const chave = `${planoChave}|${clientId}`;
           
-          // Fallback: só pelo cliente (caso não encontre pela chave principal)
-          if (clientId) {
-            addNfeToMap(mapNfeByClienteOnly, clientId, nfe);
+          // Se já existe, concatena
+          const existente = mapNfe.get(chave);
+          if (existente) {
+            if (!existente.includes(nfe)) {
+              mapNfe.set(chave, `${existente}, ${nfe}`);
+            }
+          } else {
+            mapNfe.set(chave, nfe);
           }
         }
       }
     }
     
-    console.log(`📊 Total de NFes mapeadas por Plano+Cliente: ${mapNfeByPlanoCliente.size}`);
-    console.log(`📊 Total de NFes mapeadas só por Cliente: ${mapNfeByClienteOnly.size}`);
+    console.log(`📝 Total de NFes mapeadas: ${mapNfe.size}`);
 
     // Mapeamento Motoristas
     const mapMotoristasAux = new Map();
@@ -150,8 +149,11 @@ function getDashboardData(modo) {
       }
     }
 
-    // Processamento GreenMile
+    // ========================================================================
+    // ✅ PROCESSAMENTO GREENMILE - VALOR DIRETO DO stop.plannedSize3
+    // ========================================================================
     const mapGMData = new Map();
+    
     if (colGM.ROUTE_KEY !== -1) {
       for (let i = 1; i < dataGM.length; i++) {
         const rKey = normalizarChave(dataGM[i][colGM.ROUTE_KEY]);
@@ -177,11 +179,12 @@ function getDashboardData(modo) {
         if (isDone) rota.feitos++;
         if (isDev) rota.dev++;
         
+        // ✅ PESO: plannedSize1 ou actualSize1
         const pesoStop = parseNumeroSeguro(row[colGM.PESO_P] || row[colGM.PESO_A] || 0);
         rota.peso += pesoStop;
         
-        // ✅ VALOR: Vem do plannedSize3 do GreenMile
-        const valorStop = parseNumeroSeguro(row[colGM.VALOR]);
+        // ✅ VALOR: DIRETO do stop.plannedSize3 (coluna 15)
+        const valorStop = parseNumeroSeguro(row[colGM.VALOR] || 0);
         rota.valor += valorStop;
 
         // Permanência (tempo no cliente em minutos)
@@ -198,16 +201,10 @@ function getDashboardData(modo) {
           row[colGM.LOC_CITY]
         );
 
-        // ========================================================================
-        // ✅ CORREÇÃO: Lookup de NFe usando PLANO + CÓDIGO DO CLIENTE
-        // ========================================================================
+        // ✅ BUSCA NFE: CHAVE SIMPLES = PLANO|CLIENTE
         const clientId = String(row[colGM.LOC_KEY] || "").trim();
-        const chavePlanoCliente = `${rKey}|${clientId}`;
-        
-        // Busca primeiro por PLANO+CLIENTE, depois só por CLIENTE como fallback
-        const nfeEncontrada = mapNfeByPlanoCliente.get(chavePlanoCliente)
-          || mapNfeByClienteOnly.get(clientId)
-          || "---";
+        const chaveBusca = `${rKey}|${clientId}`;
+        const nfeEncontrada = mapNfe.get(chaveBusca) || "---";
 
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
@@ -219,8 +216,8 @@ function getDashboardData(modo) {
           isDev: isDev,
           isDone: isDone,
           permanencia: permanencia,
-          nfe: nfeEncontrada,
-          valor: valorStop,  // ✅ Valor do plannedSize3
+          nfe: nfeEncontrada,           // ✅ NFe da chave simples
+          valor: valorStop,              // ✅ Valor do plannedSize3
           peso: pesoStop,
           enderecoCompleto: enderecoCompleto
         });
@@ -311,7 +308,7 @@ function getDashboardData(modo) {
         statusClass: sClass,
         entregas: dadosGM ? `${dadosGM.feitos}/${dadosGM.total}` : "0/0",
         peso: dadosGM ? dadosGM.peso.toFixed(0) : "0",
-        valorTotal: dadosGM ? dadosGM.valor : 0,
+        valorTotal: dadosGM ? dadosGM.valor : 0,  // ✅ Soma dos plannedSize3
         unidade: dataMainRaw[i][colMain.UNIDADE] || "---",
         clickupId: dataMainRaw[i][colMain.ID_CLICKUP] || "",
         statusClickup: dataMainRaw[i][colMain.STATUS_CLICKUP] || "",
@@ -407,19 +404,6 @@ function montarEnderecoCompleto(desc, addressLine1, district, city) {
   return partes.join(" - ");
 }
 
-// ✅ FUNÇÃO SIMPLIFICADA - Não precisa mais do buildNfeKey complexo
-function addNfeToMap(map, key, nfe) {
-  if (!key || !nfe) return;
-  const atual = map.get(key);
-  if (!atual) {
-    map.set(key, nfe);
-    return;
-  }
-  if (!atual.includes(nfe)) {
-    map.set(key, `${atual}, ${nfe}`);
-  }
-}
-
 function mapDashboardCols(headers, type) {
   const map = {
     PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
@@ -437,13 +421,13 @@ function mapDashboardCols(headers, type) {
   headers.forEach((h, i) => {
     const t = String(h || "").trim().toUpperCase();
 
-    // MAIN
+    // MAIN (Aba ENTREGAS)
     if (type === 'MAIN') {
       if (t === 'PLANO' || t === 'ROTA' || t === 'NOME') map.PLANO = i;
       if (t === 'PLACA') map.PLACA = i;
       if (t === 'MOTORISTA') map.MOTORISTA = i;
       if (t === 'UNIDADE' || t === 'BASE' || t === 'CD' || t === 'FILIAL') map.UNIDADE = i;
-      if (t === 'ID GM LOCALIZAÇÃO' || t === 'ID GM LOCALIZACAO' || t === 'STOP KEY') map.ID_GM_LOC = i;
+      if (t === 'ID GM LOCALIZAÇÃO' || t === 'ID GM LOCALIZACAO' || t === 'ID GM LOCALIZAÇÃO') map.ID_GM_LOC = i;
       if (t === 'CHECKLISTS' || t === 'CHECKLIST' || t === 'NFE' || t === 'NOTAS') map.CHECKLISTS = i;
       if (t === 'TIPO DE TAREFA' || t === 'TIPO') map.TIPO = i;
       if (t === 'DATA DE SAÍDA' || t === 'DATA DE SAIDA') map.DATA_SAIDA = i;
@@ -451,11 +435,9 @@ function mapDashboardCols(headers, type) {
       if (t === 'ID DO PAI' || t === 'PARENT ID') map.ID_PAI = i;
       if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
       if (t === 'CLIENTE' || t === 'NOME DO CLIENTE') map.CLIENTE = i;
-      if (t === 'CLIENTE ID' || t === 'CLIENT ID') map.CLIENT_ID = i;
-      if (t === 'PARENT ID' || t === 'ID PAI') map.PARENT_ID = i;
     }
 
-    // MOT
+    // MOT (Aba MOTORISTAS)
     if (type === 'MOT') {
       if (t === 'PLACA') map.PLACA = i;
       if (t === 'MOTORISTA' || t === 'NOME') map.MOTORISTA = i;
@@ -464,24 +446,28 @@ function mapDashboardCols(headers, type) {
       if (t.includes('PERFIL')) map.PERFIL = i;
     }
 
-    // GM
+    // GM (Aba GreenMile)
     if (type === 'GM') {
       if (t === 'ROUTE.KEY' || t === 'ROUTE KEY') map.ROUTE_KEY = i;
-      if (t.includes('ACTUALARRIVAL')) map.ARR = i;
-      if (t.includes('ACTUALDEPARTURE')) map.DEP = i;
+      if (t === 'STOP.ACTUALARRIVAL' || t.includes('ACTUALARRIVAL')) map.ARR = i;
+      if (t === 'STOP.ACTUALDEPARTURE' || t.includes('ACTUALDEPARTURE')) map.DEP = i;
       if (t.includes('UNDELIVERABLECODE') || t.includes('DEVOLUCAO')) map.DEV_CODE = i;
-      if (t.includes('DELIVERYSTATUS') || t === 'STOP.DELIVERYSTATUS') map.STATUS = i;
-      if (t.includes('LOCATION.DESCRIPTION') || t === 'NOME DO CLIENTE') {
+      if (t === 'STOP.DELIVERYSTATUS' || t.includes('DELIVERYSTATUS')) map.STATUS = i;
+      if (t === 'STOP.LOCATION.DESCRIPTION' || t.includes('LOCATION.DESCRIPTION')) {
         map.CLIENTE = i;
         map.LOC_DESC = i;
       }
-      if (t.includes('LOCATION.ADDRESSLINE1')) map.LOC_ADDRESS = i;
-      if (t.includes('LOCATION.CITY')) map.LOC_CITY = i;
-      if (t.includes('LOCATION.DISTRICT')) map.LOC_DISTRICT = i;
-      if (t.includes('PLANNEDSEQUENCENUM')) map.SEQ = i;
-      if (t.includes('PLANNEDSIZE1')) map.PESO_P = i;
-      if (t.includes('ACTUALSIZE1')) map.PESO_A = i;
+      if (t === 'STOP.LOCATION.ADDRESSLINE1' || t.includes('LOCATION.ADDRESSLINE1')) map.LOC_ADDRESS = i;
+      if (t === 'STOP.LOCATION.CITY' || t.includes('LOCATION.CITY')) map.LOC_CITY = i;
+      if (t === 'STOP.LOCATION.DISTRICT' || t.includes('LOCATION.DISTRICT')) map.LOC_DISTRICT = i;
+      if (t === 'STOP.PLANNEDSEQUENCENUM' || t.includes('PLANNEDSEQUENCENUM')) map.SEQ = i;
+      if (t === 'STOP.PLANNEDSIZE1' || t.includes('PLANNEDSIZE1')) map.PESO_P = i;
+      if (t === 'STOP.ACTUALSIZE1' || t.includes('ACTUALSIZE1')) map.PESO_A = i;
+      
+      // ✅ VALOR: stop.plannedSize3 (coluna 15 conforme debug)
       if (t === 'STOP.PLANNEDSIZE3' || t === 'PLANNEDSIZE3') map.VALOR = i;
+      
+      // ✅ LOCATION.KEY: stop.location.key (coluna 18 conforme debug)
       if (t === 'STOP.LOCATION.KEY' || t === 'LOCATION.KEY') map.LOC_KEY = i;
     }
   });
@@ -549,7 +535,7 @@ function finalizarTarefaBackend(clickupId, rotaId) {
 
     // Limpa o cache para forçar atualização
     try {
-      CacheService.getScriptCache().remove("payload_dashboard_v5");
+      CacheService.getScriptCache().remove("payload_dashboard_v6");
     } catch(e) {}
     
     return { success: true };
