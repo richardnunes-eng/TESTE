@@ -740,7 +740,8 @@ function buildClickupBadge(d, mode) {
     const color = getClickupLabelColor(label) || normalizeClickupColor(d.statusClickupColor) || 'var(--clickup-color)';
     const sizeClass = mode === 'table' ? 'clickup-badge-xs' : 'clickup-badge-sm';
     const safeId = String(d.id || '').trim();
-    return `<span class="status-badge clickup-badge ${sizeClass}" onclick="openClickupStatusMenu(event, '${safeId}')" style="--clickup-status-color: ${color};">${label}</span>`;
+    const labelUpper = label.toUpperCase();
+    return `<span class="status-badge clickup-badge ${sizeClass}" onclick="openClickupStatusMenu(event, '${safeId}')" style="--clickup-status-color: ${color};">${labelUpper}</span>`;
 }
 
 function getDriverDelay(driver) {
@@ -863,6 +864,9 @@ window.openModal = function(id) {
     
     const menu = document.getElementById('quickActionMenu');
     if (!menu) return;
+
+    const statusMenu = document.getElementById('clickupStatusMenu');
+    if (statusMenu) statusMenu.style.display = 'none';
     
     menu.style.display = 'block';
     
@@ -916,7 +920,7 @@ window.openClickupStatusMenu = function(evt, id) {
         const btn = document.createElement('button');
         btn.className = 'status-option' + (currentNorm === String(status).toLowerCase() ? ' active' : '');
         btn.style.setProperty('--status-color', getClickupLabelColor(status) || 'var(--primary)');
-        btn.innerHTML = `<span class="status-dot"></span><span>${status}</span>`;
+        btn.innerHTML = `<span class="status-dot"></span><span>${String(status).toUpperCase()}</span>`;
         btn.onclick = (e) => {
             e.stopPropagation();
             setClickupStatus(status);
