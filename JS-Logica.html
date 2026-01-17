@@ -589,10 +589,7 @@ function renderGrid(list) {
         let liveStatus = buildLiveStatus(d, 'card');
         let badgeClass = getBadgeClass(d.statusClass);
         let barColor = getBarColor(d.statusClass);
-        let devPct = Math.min(Math.max(parseFloat(d.devolucaoPct) || 0, 0), 100);
-        let entreguePct = Math.min(Math.max(parseFloat(d.entreguePct) || 0, 0), 100);
-        let devPct = Math.min(Math.max(parseFloat(d.devolucaoPct) || 0, 0), 100);
-        let entreguePct = Math.min(Math.max(parseFloat(d.entreguePct) || 0, 0), 100);
+        const { devPct, entreguePct } = getPct(d);
         let telDisplay = d.tel || 'S/ Tel';
         let clickupBadge = buildClickupBadge(d, 'card');
 
@@ -684,6 +681,7 @@ function renderTable(list) {
         let safeId = String(d.id).trim();
         let badgeClass = getBadgeClass(d.statusClass);
         let barColor = getBarColor(d.statusClass);
+        const { devPct, entreguePct } = getPct(d);
         let statusColor = getStatusColor(d.statusClass);
         let valFmt = d.valorTotal ? d.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
         let clickupBadge = buildClickupBadge(d, 'table');
@@ -763,6 +761,12 @@ function renderTable(list) {
 // ============================================================================
 // HELPERS VISUAIS
 // ============================================================================
+function getPct(d) {
+    const devPct = Math.min(Math.max(parseFloat(d.devolucaoPct) || 0, 0), 100);
+    const entreguePct = Math.min(Math.max(parseFloat(d.entreguePct) || 0, 0), 100);
+    return { devPct, entreguePct };
+}
+
 function getBadgeClass(s) { 
     if(s=='success') return 'badge-success'; 
     if(s=='warning') return 'badge-warning'; 
