@@ -37,6 +37,17 @@ const COLUNAS_GM = [
   "stop.location.key",
 ];
 
+function parseNumeroSeguro(valor) {
+  if (valor === null || valor === undefined) return 0;
+  if (typeof valor === "number") return valor;
+  const normalizado = String(valor)
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=.*\.)/g, "")
+    .replace(",", ".");
+  const parsed = parseFloat(normalizado);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 function sincronizarGreenMileStable() {
   console.time("⏱️ Tempo Total GreenMile");
   console.log("🚀 Iniciando Sincronização GreenMile (Modo Seguro)...");
@@ -202,8 +213,11 @@ function sincronizarGreenMileStable() {
                     }
                     
                     // Garantir que valores numéricos sejam números
-                    flatItem["stop.plannedSize3"] = parseFloat(flatItem["stop.plannedSize3"] || 0);
-                    flatItem["stop.plannedSize1"] = parseFloat(flatItem["stop.plannedSize1"] || 0);
+                    const plannedSize3Raw = flatItem["stop.plannedSize3"] 
+                      ?? flatItem["stop.plannedSize3.value"]
+                      ?? flatItem["stop.plannedSize3.amount"];
+                    flatItem["stop.plannedSize3"] = parseNumeroSeguro(plannedSize3Raw);
+                    flatItem["stop.plannedSize1"] = parseNumeroSeguro(flatItem["stop.plannedSize1"] || 0);
                     flatItem["stop.plannedSequenceNum"] = parseInt(flatItem["stop.plannedSequenceNum"] || 0);
                     
                     novosRegistros.push(flatItem);
