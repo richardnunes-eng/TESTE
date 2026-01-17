@@ -8,6 +8,7 @@ let state = {
     allDrivers: [],
     filters: { unidade: new Set(), veiculo: new Set(), status: 'ALL' },
     search: '',
+    searchTerms: [],
     sort: { key: null, asc: true },
     viewMode: 'grid'
 };
@@ -88,6 +89,7 @@ function loadFromCache() {
         try {
             const data = JSON.parse(cached);
             state.allDrivers = data || [];
+            prepareSearchIndex(state.allDrivers);
             renderDashboard({ drivers: state.allDrivers });
         } catch(e) { console.warn("Cache inválido"); }
     }
@@ -158,6 +160,7 @@ function loadData(modo = 'check') {
             });
 
             state.allDrivers = incomingDrivers;
+            prepareSearchIndex(state.allDrivers);
             saveToCache(state.allDrivers); 
             
             // Atualiza Label de Data/Hora
@@ -194,6 +197,8 @@ function renderDashboard(dataOpcional) {
     }
 
     if (state.allDrivers.length === 0) return;
+
+    prepareSearchIndex(state.allDrivers);
     
     // Atualiza os Dropdowns de filtro
     buildFilterOptions('unidade', 'list-unidade');
@@ -282,26 +287,12 @@ function applyPipeline(showLoader = true) {
             }
 
       // --- FILTRO DE BUSCA ---
-            if (state.search && state.search.trim() !== '') {
-                const termos = state.search
-                    .toLowerCase()
-                    .split(';')
-                    .map(t => t.trim())
-                    .filter(Boolean); // remove vazios
+            if (state.searchTerms.length > 0) {
+                const termos = state.searchTerms;
 
                 result = result.filter(d => {
-                    const baseText = (
-                        (d.motorista || '') + ' ' +
-                        (d.placa || '') + ' ' +
-                        (d.veiculo || '') + ' ' +
-                        (d.plano || '') + ' ' +
-                        (d.unidade || '') + ' ' +
-                        (d.tel || '')
-                    ).toLowerCase();
-
-                    const nfeText = Array.isArray(d.detalhes)
-                        ? d.detalhes.map(s => String(s?.nfe || '')).join(' ').toLowerCase()
-                        : '';
+                    const baseText = d._searchBase || '';
+                    const nfeText = d._searchNfe || '';
 
                     // OR lógico: algum termo precisa bater
                     return termos.some(termo =>
@@ -381,10 +372,36 @@ function onSearchInput() {
     searchTimeout = setTimeout(() => {
         if (isSearching) return;
         isSearching = true;
-        state.search = document.getElementById('searchInput').value.toLowerCase();
+        const rawSearch = document.getElementById('searchInput').value || '';
+        state.search = rawSearch.toLowerCase();
+        state.searchTerms = state.search
+            .split(';')
+            .map(t => t.trim())
+            .filter(Boolean);
         applyPipeline(false); // Sem loader na busca
         isSearching = false;
     }, 250);
+}
+
+function prepareSearchIndex(drivers) {
+    if (!Array.isArray(drivers)) return;
+    drivers.forEach(d => {
+        d._searchBase = [
+            d.motorista,
+            d.placa,
+            d.veiculo,
+            d.plano,
+            d.unidade,
+            d.tel
+        ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+
+        d._searchNfe = Array.isArray(d.detalhes)
+            ? d.detalhes.map(s => String(s?.nfe || '')).join(' ').toLowerCase()
+            : '';
+    });
 }
 
 function setQuickFilter(status, btn) {
