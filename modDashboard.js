@@ -96,14 +96,26 @@ function getDashboardData(modo) {
 
     // Mapeamento NFe
     const mapNfeByStopKey = new Map();
-    if (colMain.ID_GM_LOC !== -1 && colMain.CHECKLISTS !== -1) {
+    const mapNfeByPlanClientKey = new Map();
+    const mapNfeByClientKey = new Map();
+    if (colMain.CHECKLISTS !== -1) {
       for (let i = 1; i < dataMainDisplay.length; i++) {
-        const locKey = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
         const nfe = String(dataMainDisplay[i][colMain.CHECKLISTS] || "").trim();
-        if (locKey && nfe && nfe !== "" && nfe !== "---") {
-          const atual = mapNfeByStopKey.get(locKey);
-          mapNfeByStopKey.set(locKey, atual ? (atual.includes(nfe) ? atual : atual + ", " + nfe) : nfe);
+        if (!nfe || nfe === "---") continue;
+
+        if (colMain.ID_GM_LOC !== -1) {
+          const locKey = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
+          addNfeToMap(mapNfeByStopKey, locKey, nfe);
         }
+
+        const planoRaw = colMain.PLANO !== -1 ? String(dataMainDisplay[i][colMain.PLANO] || "").trim() : "";
+        const clientRaw = colMain.CLIENT_ID !== -1
+          ? String(dataMainDisplay[i][colMain.CLIENT_ID] || "").trim()
+          : (colMain.CLIENTE !== -1 ? String(dataMainDisplay[i][colMain.CLIENTE] || "").trim() : "");
+
+        const planClientKey = buildPlanClientKey(planoRaw, clientRaw);
+        addNfeToMap(mapNfeByPlanClientKey, planClientKey, nfe);
+        addNfeToMap(mapNfeByClientKey, normalizarChave(clientRaw), nfe);
       }
     }
 
@@ -169,6 +181,14 @@ function getDashboardData(modo) {
           row[colGM.LOC_CITY]
         );
 
+        const locKey = String(row[colGM.LOC_KEY] || "").trim();
+        const clientKey = normalizarChave(row[colGM.CLIENTE] || row[colGM.LOC_DESC] || "");
+        const planClientKey = rKey && clientKey ? `${rKey}|${clientKey}` : "";
+        const nfe = mapNfeByStopKey.get(locKey)
+          || mapNfeByPlanClientKey.get(planClientKey)
+          || mapNfeByClientKey.get(clientKey)
+          || "---";
+
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
           cliente: String(row[colGM.CLIENTE] || "").substring(0, 25),
@@ -178,7 +198,7 @@ function getDashboardData(modo) {
           isDev: isDev,
           isDone: isDone,
           permanencia: permanencia,
-          nfe: mapNfeByStopKey.get(String(row[colGM.LOC_KEY] || "").trim()) || "---",
+          nfe: nfe,
           valor: valorStop,
           enderecoCompleto: enderecoCompleto
         });
@@ -365,6 +385,26 @@ function montarEnderecoCompleto(desc, addressLine1, district, city) {
   return partes.join(" - ");
 }
 
+function buildPlanClientKey(plano, client) {
+  if (!plano || !client) return "";
+  const planoKey = normalizarChave(String(plano).split("-")[0]);
+  const clientKey = normalizarChave(client);
+  if (!planoKey || !clientKey) return "";
+  return `${planoKey}|${clientKey}`;
+}
+
+function addNfeToMap(map, key, nfe) {
+  if (!key || !nfe) return;
+  const atual = map.get(key);
+  if (!atual) {
+    map.set(key, nfe);
+    return;
+  }
+  if (!atual.includes(nfe)) {
+    map.set(key, `${atual}, ${nfe}`);
+  }
+}
+
 function mapDashboardCols(headers, type) {
   const map = {
     PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
@@ -374,7 +414,7 @@ function mapDashboardCols(headers, type) {
     VALOR:-1, LOC_KEY:-1,
     DATA_SAIDA:-1, ID_CLICKUP:-1,
     UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
-    DEV_CODE:-1, CLIENTE:-1, SEQ:-1,
+    DEV_CODE:-1, CLIENTE:-1, SEQ:-1, CLIENT_ID:-1, PARENT_ID:-1,
     LOC_DESC:-1, LOC_ADDRESS:-1, LOC_CITY:-1, LOC_DISTRICT:-1,
     STATUS_CLICKUP:-1
   };
@@ -394,6 +434,9 @@ function mapDashboardCols(headers, type) {
       if (t === 'DATA DE SAÍDA' || t === 'DATA DE SAIDA') map.DATA_SAIDA = i;
       if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') map.ID_CLICKUP = i;
       if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
+      if (t === 'CLIENTE' || t === 'NOME DO CLIENTE') map.CLIENTE = i;
+      if (t === 'CLIENTE ID' || t === 'CLIENT ID') map.CLIENT_ID = i;
+      if (t === 'PARENT ID' || t === 'ID PAI') map.PARENT_ID = i;
     }
 
     // MOT
