@@ -94,28 +94,44 @@ function getDashboardData(modo) {
       return { error: "Coluna PLANO não encontrada em ENTREGAS.", drivers: [], stats: {} };
     }
 
-    // Mapeamento NFe
-    const mapNfeByStopKey = new Map();
+    // Mapeamento NFe (abordagem mesclada)
+    const mapNfeByCompositeKey = new Map();
     const mapNfeByPlanClientKey = new Map();
     const mapNfeByClientKey = new Map();
-    if (colMain.CHECKLISTS !== -1) {
+    const mapPlanIdByRouteKey = new Map();
+
+    // Primeiro: mapear Plan IDs por Route Key
+    if (colMain.PLANO !== -1 && colMain.ID_CLICKUP !== -1 && colMain.TIPO !== -1) {
+      for (let i = 1; i < dataMainRaw.length; i++) {
+        const tipo = String(dataMainRaw[i][colMain.TIPO] || "").toLowerCase();
+        if (!tipo.includes("principal")) continue;
+        const planoFull = String(dataMainRaw[i][colMain.PLANO] || "");
+        const planoChave = normalizarChave(planoFull.split('-')[0]);
+        const planId = String(dataMainRaw[i][colMain.ID_CLICKUP] || "").trim();
+        if (planoChave && planId) mapPlanIdByRouteKey.set(planoChave, planId);
+      }
+    }
+
+    // Segundo: mapear NFes
+    if (colMain.ID_GM_LOC !== -1 && colMain.CHECKLISTS !== -1) {
       for (let i = 1; i < dataMainDisplay.length; i++) {
+        const clientId = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
         const nfe = String(dataMainDisplay[i][colMain.CHECKLISTS] || "").trim();
-        if (!nfe || nfe === "---") continue;
+        const taskId = colMain.ID_CLICKUP !== -1 ? String(dataMainDisplay[i][colMain.ID_CLICKUP] || "").trim() : "";
+        const parentId = colMain.ID_PAI !== -1 ? String(dataMainDisplay[i][colMain.ID_PAI] || "").trim() : "";
+        const planId = parentId && parentId !== "-" ? parentId : taskId;
 
-        if (colMain.ID_GM_LOC !== -1) {
-          const locKey = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
-          addNfeToMap(mapNfeByStopKey, locKey, nfe);
+        if (clientId && nfe && nfe !== "" && nfe !== "---") {
+          const compositeKey = buildNfeKey({ taskId, parentId, clientId });
+          addNfeToMap(mapNfeByCompositeKey, compositeKey, nfe);
+
+          if (planId) {
+            const planClientKey = buildNfeKey({ parentId: planId, clientId });
+            addNfeToMap(mapNfeByPlanClientKey, planClientKey, nfe);
+          }
+
+          addNfeToMap(mapNfeByClientKey, clientId, nfe);
         }
-
-        const planoRaw = colMain.PLANO !== -1 ? String(dataMainDisplay[i][colMain.PLANO] || "").trim() : "";
-        const clientRaw = colMain.CLIENT_ID !== -1
-          ? String(dataMainDisplay[i][colMain.CLIENT_ID] || "").trim()
-          : (colMain.CLIENTE !== -1 ? String(dataMainDisplay[i][colMain.CLIENTE] || "").trim() : "");
-
-        const planClientKey = buildPlanClientKey(planoRaw, clientRaw);
-        addNfeToMap(mapNfeByPlanClientKey, planClientKey, nfe);
-        addNfeToMap(mapNfeByClientKey, normalizarChave(clientRaw), nfe);
       }
     }
 
@@ -181,13 +197,10 @@ function getDashboardData(modo) {
           row[colGM.LOC_CITY]
         );
 
-        const locKey = String(row[colGM.LOC_KEY] || "").trim();
-        const clientKey = normalizarChave(row[colGM.CLIENTE] || row[colGM.LOC_DESC] || "");
-        const planClientKey = rKey && clientKey ? `${rKey}|${clientKey}` : "";
-        const nfe = mapNfeByStopKey.get(locKey)
-          || mapNfeByPlanClientKey.get(planClientKey)
-          || mapNfeByClientKey.get(clientKey)
-          || "---";
+        // Lookup de NFe usando a estratégia do main
+        const clientId = String(row[colGM.LOC_KEY] || "").trim();
+        const planId = mapPlanIdByRouteKey.get(rKey) || "";
+        const planClientKey = buildNfeKey({ parentId: planId, clientId });
 
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
@@ -198,7 +211,9 @@ function getDashboardData(modo) {
           isDev: isDev,
           isDone: isDone,
           permanencia: permanencia,
-          nfe: nfe,
+          nfe: mapNfeByPlanClientKey.get(planClientKey)
+            || mapNfeByClientKey.get(clientId)
+            || "---",
           valor: valorStop,
           enderecoCompleto: enderecoCompleto
         });
@@ -385,12 +400,12 @@ function montarEnderecoCompleto(desc, addressLine1, district, city) {
   return partes.join(" - ");
 }
 
-function buildPlanClientKey(plano, client) {
-  if (!plano || !client) return "";
-  const planoKey = normalizarChave(String(plano).split("-")[0]);
-  const clientKey = normalizarChave(client);
-  if (!planoKey || !clientKey) return "";
-  return `${planoKey}|${clientKey}`;
+function buildNfeKey({ taskId, parentId, clientId }) {
+  const parts = [];
+  if (taskId) parts.push(`task:${taskId}`);
+  if (parentId) parts.push(`parent:${parentId}`);
+  if (clientId) parts.push(`client:${clientId}`);
+  return parts.join("|");
 }
 
 function addNfeToMap(map, key, nfe) {
@@ -410,7 +425,7 @@ function mapDashboardCols(headers, type) {
     PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
     ARR:-1, DEP:-1, STATUS:-1,
     PESO_P:-1, PESO_A:-1,
-    ID_GM_LOC:-1, CHECKLISTS:-1, TIPO:-1,
+    ID_GM_LOC:-1, CHECKLISTS:-1, TIPO:-1, ID_PAI:-1,
     VALOR:-1, LOC_KEY:-1,
     DATA_SAIDA:-1, ID_CLICKUP:-1,
     UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
@@ -433,6 +448,7 @@ function mapDashboardCols(headers, type) {
       if (t === 'TIPO DE TAREFA' || t === 'TIPO') map.TIPO = i;
       if (t === 'DATA DE SAÍDA' || t === 'DATA DE SAIDA') map.DATA_SAIDA = i;
       if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') map.ID_CLICKUP = i;
+      if (t === 'ID DO PAI' || t === 'PARENT ID') map.ID_PAI = i;
       if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
       if (t === 'CLIENTE' || t === 'NOME DO CLIENTE') map.CLIENTE = i;
       if (t === 'CLIENTE ID' || t === 'CLIENT ID') map.CLIENT_ID = i;
