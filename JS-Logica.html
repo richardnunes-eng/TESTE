@@ -1034,13 +1034,16 @@ window.renderDetailedModal = function(id) {
             let valorNum = parseFloat(String(s.valor).replace('R$', '').replace('.', '').replace(',', '.')) || 0;
             let hasValue = valorNum > 0;
             let hasNfe = (s.nfe && s.nfe !== "" && s.nfe !== "---");
+            let enderecoCompleto = String(s.enderecoCompleto || "").trim();
+            let hasEndereco = enderecoCompleto !== "";
             let hiddenContent = '';
             let detailsId = `stop-details-${index}`;
 
-            if (hasValue || hasNfe) {
+            if (hasValue || hasNfe || hasEndereco) {
                 let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
                 let nfeStr = hasNfe ? s.nfe : '-';
-                hiddenContent = `<div id="${detailsId}" class="stop-extended-details" style="display:none;"><div class="det-item"><span class="det-label">Valor:</span> <span class="det-val">${valStr}</span></div><div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div></div>`;
+                let enderecoStr = hasEndereco ? enderecoCompleto : '-';
+                hiddenContent = `<div id="${detailsId}" class="stop-extended-details" style="display:none;"><div class="det-item"><span class="det-label">Valor:</span> <span class="det-val">${valStr}</span></div><div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div><div class="det-item"><span class="det-label">Endereço completo:</span> <span class="det-val">${enderecoStr}</span></div></div>`;
             }
             let clientNameHtml = (hiddenContent !== '') ? `<span class="client-name-link" onclick="toggleStopDetails('${detailsId}')">${s.cliente} <span style="font-size:10px">▼</span></span>` : s.cliente;
 

@@ -24,6 +24,8 @@ const COLUNAS_GM = [
   "stop.undeliverableCode.description", 
   "stop.deliveryStatus", 
   "stop.location.description", 
+  "stop.location.addressLine1",
+  "stop.location.district",
   "stop.actualSize1", 
   "stop.plannedSize1", 
   "stop.baseLineSize1", 
