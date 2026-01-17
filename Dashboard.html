@@ -17,13 +17,18 @@
 
   
 
-    <div id="loader">
-        <canvas id="gameCanvas" width="600" height="200"></canvas>
-        <p class="game-msg" id="loadingText">CARREGANDO SISTEMA... (Pressione ESPAÃ‡O ou Toque para Pular)</p>
-        <div class="progress-container"><div class="progress-bar-load"></div></div>
+    <div id="loader" class="startup-loader">
+        <div class="loader-shell">
+            <img src="https://drive.google.com/thumbnail?id=1Ft7TTx-y4bLisPyCnBeXZmh9gPgLFZ1T&sz=w500" class="loader-logo" alt="Logo THX LOG">
+            <div class="loader-pulse-line"></div>
+            <div class="loader-tagline">Foco no foco do cliente</div>
+            <div class="loader-sub">Centro de Comando</div>
+            <div class="loader-bar"><div class="loader-bar-fill"></div></div>
+            <div class="loader-quote" id="loaderQuote">Atualizando informações...</div>
+            <div class="loader-quote-author" id="loaderQuoteAuthor"></div>
+        </div>
     </div>
-
-    <div class="success-overlay" id="successOverlay">
+<div class="success-overlay" id="successOverlay">
         <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52"><circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/><path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/></svg>
         <div class="success-text"><h3>Registrado!</h3><p style="color: var(--text-muted);">Dados enviados.</p></div>
     </div>
@@ -219,7 +224,6 @@
     </div>
 </div>
 
-    <?!= include('JS-Game'); ?>
     <?!= include('JS-Logica'); ?>
 
     <div id="toastNotification" class="toast-box">
@@ -306,3 +310,6 @@ function applyPipelineAsync() {
 }
 <script>
 </html>
+
+
+

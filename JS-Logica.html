@@ -15,6 +15,7 @@ let state = {
 
 let searchTimeout = null;
 let loadingSafetyTimer = null;
+let loaderQuoteTimer = null;
 let selectedDriverId = null;
 const CLICKUP_STATUS_OPTIONS = [
     "EM ROTA",
@@ -26,6 +27,14 @@ const CLICKUP_STATUS_OPTIONS = [
     "PERNOITE",
     "Fechado",
     "FINALIZADA"
+];
+const LOADER_QUOTES = [
+    { text: "Tu te tornas eternamente responsável por aquilo que cativas.", author: "Antoine de Saint-Exupéry", book: "O Pequeno Príncipe" },
+    { text: "O essencial é invisível aos olhos.", author: "Antoine de Saint-Exupéry", book: "O Pequeno Príncipe" },
+    { text: "Só uma coisa torna um sonho impossível: o medo de fracassar.", author: "Paulo Coelho", book: "O Alquimista" },
+    { text: "Os olhos mostram a força da alma.", author: "Paulo Coelho", book: "O Alquimista" },
+    { text: "Tudo o que temos de decidir é o que fazer com o tempo que nos é dado.", author: "J.R.R. Tolkien", book: "O Senhor dos Anéis" },
+    { text: "Estratégia sem tática é o caminho mais lento para a vitória. Tática sem estratégia é o ruído antes da derrota.", author: "Sun Tzu", book: "A Arte da Guerra" }
 ];
 
 // ============================================================================
@@ -182,7 +191,7 @@ function loadData(modo = 'check') {
             const label = document.getElementById('lastUpdateDisplay');
             if(label) label.innerText = `Atualizado: ${dataFmt} às ${horaFmt}`;
 
-            renderDashboard(); 
+            renderDashboard({ drivers: state.allDrivers, silent: (modo !== 'force') }); 
             
             // Para o ícone e esconde loader
             if(icon) icon.classList.remove('rotating');
@@ -207,6 +216,7 @@ function renderDashboard(dataOpcional) {
     if (dataOpcional && dataOpcional.drivers) {
         state.allDrivers = dataOpcional.drivers;
     }
+    const silent = dataOpcional && dataOpcional.silent;
 
     if (state.allDrivers.length === 0) return;
 
@@ -220,7 +230,7 @@ function renderDashboard(dataOpcional) {
     populateFormSelects(state.allDrivers);
 
     // Desenha a tela aplicando todos os filtros
-    applyPipeline(true);
+    applyPipeline(!silent);
     
     // Esconde o loader inicial com delay
     setTimeout(() => {
@@ -234,28 +244,13 @@ function renderDashboard(dataOpcional) {
 function initLoaderFailsafe() {
     const loader = document.getElementById('loader');
     if (!loader) return;
-
-    const seen = localStorage.getItem('thx_loader_seen') === '1';
-    if (seen) {
-        stopLoader();
-        return;
-    }
-
-    localStorage.setItem('thx_loader_seen', '1');
-
-    // Evita travar a primeira entrada se a carga demorar demais
-    setTimeout(() => {
-        if (loader.style.display !== 'none') {
-            stopLoader();
-            showGlobalLoader('Carregando dados em segundo plano...');
-            setTimeout(hideGlobalLoader, 2500);
-        }
-    }, 6000);
+    const quoteEl = document.getElementById('loaderQuote');
+    if (quoteEl) quoteEl.innerText = 'Atualizando informações...';
+    startLoaderQuotes();
 }
 
 function stopLoader() {
-    // Mata o jogo se estiver rodando
-    if(typeof gameRunning !== 'undefined') gameRunning = false;
+    stopLoaderQuotes();
 
     // Esconde o loader inicial
     const loader = document.getElementById('loader');
@@ -273,6 +268,12 @@ function stopLoader() {
 }
 
 function showGlobalLoader(msg) {
+    const startup = document.getElementById('loader');
+    if (startup && startup.style.display !== 'none') {
+        const quoteEl = document.getElementById('loaderQuote');
+        if (quoteEl && msg) quoteEl.innerText = msg;
+        return;
+    }
     const loader = document.getElementById('globalLoader');
     const text = document.getElementById('loaderText');
     if (text) text.innerText = msg || 'Processando...';
@@ -289,6 +290,31 @@ function hideGlobalLoader() {
     const loader = document.getElementById('globalLoader');
     if (loader) loader.style.display = 'none';
     clearTimeout(loadingSafetyTimer);
+}
+
+function setLoaderQuote() {
+    const quoteEl = document.getElementById('loaderQuote');
+    const authorEl = document.getElementById('loaderQuoteAuthor');
+    if (!quoteEl || !authorEl) return;
+    const pick = LOADER_QUOTES[Math.floor(Math.random() * LOADER_QUOTES.length)];
+    quoteEl.innerText = pick.text;
+    const authorBits = [];
+    if (pick.author) authorBits.push(pick.author);
+    if (pick.book) authorBits.push(pick.book);
+    authorEl.innerText = authorBits.length ? `— ${authorBits.join(", ")}` : "";
+}
+
+function startLoaderQuotes() {
+    setLoaderQuote();
+    if (loaderQuoteTimer) clearInterval(loaderQuoteTimer);
+    loaderQuoteTimer = setInterval(setLoaderQuote, 3500);
+}
+
+function stopLoaderQuotes() {
+    if (loaderQuoteTimer) {
+        clearInterval(loaderQuoteTimer);
+        loaderQuoteTimer = null;
+    }
 }
 
 // ============================================================================
