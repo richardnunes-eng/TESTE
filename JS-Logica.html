@@ -16,6 +16,7 @@ let state = {
 let searchTimeout = null;
 let loadingSafetyTimer = null;
 let loaderQuoteTimer = null;
+let initialDataLoaded = false;
 let selectedDriverId = null;
 const CLICKUP_STATUS_OPTIONS = [
     "EM ROTA",
@@ -76,7 +77,7 @@ window.onload = function() {
         loadData('check'); 
     }, 300000);
 
-    // Carga Inicial
+    // Carga Inicial (somente libera tela com dados do servidor)
     loadFromCache();
     loadData('check'); 
 };
@@ -111,7 +112,9 @@ function loadFromCache() {
             const data = JSON.parse(cached);
             state.allDrivers = data || [];
             prepareSearchIndex(state.allDrivers);
-            renderDashboard({ drivers: state.allDrivers });
+            if (initialDataLoaded) {
+                renderDashboard({ drivers: state.allDrivers });
+            }
         } catch(e) { console.warn("Cache inválido"); }
     }
 }
@@ -191,6 +194,7 @@ function loadData(modo = 'check') {
             const label = document.getElementById('lastUpdateDisplay');
             if(label) label.innerText = `Atualizado: ${dataFmt} às ${horaFmt}`;
 
+            initialDataLoaded = true;
             renderDashboard({ drivers: state.allDrivers, silent: (modo !== 'force') }); 
             
             // Para o ícone e esconde loader

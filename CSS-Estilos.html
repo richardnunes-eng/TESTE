@@ -348,11 +348,13 @@
     
     /* GAME OVERLAY STYLES */
     #loader.startup-loader { 
-        position: fixed; inset: 0; z-index: 200; 
+        position: fixed; inset: 0; z-index: 9999; 
         display: flex; align-items: center; justify-content: center; 
-        background: radial-gradient(1200px 500px at 20% 10%, rgba(59, 130, 246, 0.08), transparent 60%),
-                    radial-gradient(900px 600px at 90% 20%, rgba(16, 185, 129, 0.08), transparent 55%),
-                    var(--bg-right);
+        background:
+            radial-gradient(1200px 500px at 20% 10%, rgba(59, 130, 246, 0.10), transparent 60%),
+            radial-gradient(900px 600px at 90% 20%, rgba(16, 185, 129, 0.10), transparent 55%),
+            linear-gradient(180deg, rgba(15, 23, 42, 0.06), transparent 35%),
+            var(--bg-right);
         transition: opacity 0.5s; 
     }
     .loader-shell {
