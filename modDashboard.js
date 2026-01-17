@@ -482,146 +482,325 @@ function getDashboardData(modo) {
   }
 }
 
-// =============================================================================
-// EXPORTAR CSV (ZIP COM ROTAS + PARADAS)
-// =============================================================================
+/**
+ * ============================================================================
+ * EXPORTAÇÃO DE PLANILHA - VERSÃO COMPLETA E OTIMIZADA
+ * ============================================================================
+ */
+
 function exportDashboardCsv() {
-  try {
-    const payload = getDashboardData('check');
-    if (!payload || payload.error) {
-      return { error: payload && payload.error ? payload.error : "Erro ao gerar dados." };
-    }
-
-    const drivers = payload.drivers || [];
-    const stats = payload.stats || {};
-    const tz = Session.getScriptTimeZone();
-    const now = new Date();
-    const stamp = Utilities.formatDate(now, tz, "yyyyMMdd_HHmm");
-    const reportName = "THX_LOG_Dashboard_" + stamp;
-
-    const ss = SpreadsheetApp.create(reportName);
-    const resumo = ss.getActiveSheet();
-    resumo.setName("Resumo");
-
-    // Logo + cabeçalho
-    const logoId = "1Ft7TTx-y4bLisPyCnBeXZmh9gPgLFZ1T";
     try {
-      const logoBlob = DriveApp.getFileById(logoId).getBlob();
-      resumo.insertImage(logoBlob, 1, 1);
-    } catch (e) {
-      console.warn("Logo indisponivel: " + e.message);
+        Logger.log("📊 Iniciando exportação de planilha...");
+        
+        // 1️⃣ Obtém os dados do dashboard
+        const dashboardData = getDashboardData('force');
+        
+        if (!dashboardData || !dashboardData.drivers || dashboardData.drivers.length === 0) {
+            Logger.log("⚠️ Nenhum dado encontrado para exportar");
+            return { error: "Nenhum dado disponível para exportação." };
+        }
+        
+        const drivers = dashboardData.drivers;
+        Logger.log(`✅ ${drivers.length} rotas encontradas`);
+        
+        // 2️⃣ Cria nova planilha
+        const agora = new Date();
+        const dataStr = Utilities.formatDate(agora, Session.getScriptTimeZone(), "dd-MM-yyyy_HH-mm");
+        const nomePlanilha = `Dashboard_THX_${dataStr}`;
+        
+        const ss = SpreadsheetApp.create(nomePlanilha);
+        const sheet = ss.getActiveSheet();
+        sheet.setName("Rotas");
+        
+        Logger.log(`✅ Planilha criada: ${nomePlanilha}`);
+        
+        // 3️⃣ Define cabeçalhos
+        const headers = [
+            "Status",
+            "Motorista",
+            "Telefone",
+            "Veículo",
+            "Placa",
+            "Unidade",
+            "Plano/Rota",
+            "Data Saída",
+            "Progresso (%)",
+            "Entregue (%)",
+            "Devolução (%)",
+            "Entregas",
+            "Peso (kg)",
+            "Valor Total (R$)",
+            "Tempo em Rota",
+            "Status ClickUp",
+            "ID ClickUp"
+        ];
+        
+        // 4️⃣ Escreve cabeçalhos
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        
+        // 5️⃣ Formata cabeçalhos
+        const headerRange = sheet.getRange(1, 1, 1, headers.length);
+        headerRange.setBackground("#1a73e8");
+        headerRange.setFontColor("#FFFFFF");
+        headerRange.setFontWeight("bold");
+        headerRange.setHorizontalAlignment("center");
+        headerRange.setVerticalAlignment("middle");
+        
+        // 6️⃣ Prepara dados
+        const rows = [];
+        
+        drivers.forEach(driver => {
+            const row = [
+                driver.statusLabel || "-",
+                driver.motorista || "-",
+                driver.tel || "-",
+                driver.veiculo || "-",
+                driver.placa || "-",
+                driver.unidade || "-",
+                driver.plano || "-",
+                driver.dataSaida || "-",
+                parseFloat(driver.progresso) || 0,
+                parseFloat(driver.entreguePct) || 0,
+                parseFloat(driver.devolucaoPct) || 0,
+                parseInt(driver.entregas) || 0,
+                parseFloat(driver.peso) || 0,
+                parseFloat(driver.valorTotal) || 0,
+                driver.tempoRota || "-",
+                driver.statusClickup || "-",
+                driver.clickupId || "-"
+            ];
+            rows.push(row);
+        });
+        
+        // 7️⃣ Escreve dados
+        if (rows.length > 0) {
+            sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+            Logger.log(`✅ ${rows.length} linhas escritas`);
+        }
+        
+        // 8️⃣ Formata colunas numéricas
+        const lastRow = rows.length + 1;
+        
+        // Progresso, Entregue, Devolução (%)
+        sheet.getRange(2, 9, rows.length, 3).setNumberFormat("0.00%");
+        
+        // Valor Total (R$)
+        sheet.getRange(2, 14, rows.length, 1).setNumberFormat("R$ #,##0.00");
+        
+        // Peso (kg)
+        sheet.getRange(2, 13, rows.length, 1).setNumberFormat("#,##0.00");
+        
+        // Centraliza algumas colunas
+        sheet.getRange(2, 8, rows.length, 1).setHorizontalAlignment("center"); // Data
+        sheet.getRange(2, 9, rows.length, 4).setHorizontalAlignment("center"); // Progresso/Entregas
+        
+        // 9️⃣ Ajusta largura das colunas
+        sheet.autoResizeColumns(1, headers.length);
+        
+        // Garante largura mínima
+        for (let i = 1; i <= headers.length; i++) {
+            const currentWidth = sheet.getColumnWidth(i);
+            if (currentWidth < 100) {
+                sheet.setColumnWidth(i, 100);
+            }
+            if (currentWidth > 300) {
+                sheet.setColumnWidth(i, 300);
+            }
+        }
+        
+        // 🔟 Formatação condicional por status
+        applyConditionalFormatting(sheet, rows.length);
+        
+        // 1️⃣1️⃣ Congela cabeçalho
+        sheet.setFrozenRows(1);
+        
+        // 1️⃣2️⃣ Adiciona filtros
+        sheet.getRange(1, 1, lastRow, headers.length).createFilter();
+        
+        // 1️⃣3️⃣ Adiciona aba de estatísticas
+        addStatisticsSheet(ss, drivers);
+        
+        // 1️⃣4️⃣ Move para o início
+        ss.setActiveSheet(sheet);
+        
+        // 1️⃣5️⃣ Compartilha com o usuário
+        const userEmail = Session.getActiveUser().getEmail();
+        if (userEmail) {
+            ss.addEditor(userEmail);
+            Logger.log(`✅ Planilha compartilhada com: ${userEmail}`);
+        }
+        
+        // 1️⃣6️⃣ Obtém URL e retorna
+        const url = ss.getUrl();
+        Logger.log(`✅ Exportação concluída: ${url}`);
+        
+        return { 
+            success: true,
+            url: url,
+            fileName: nomePlanilha,
+            rowCount: rows.length
+        };
+        
+    } catch (error) {
+        Logger.log(`❌ Erro na exportação: ${error.toString()}`);
+        Logger.log(`Stack: ${error.stack}`);
+        
+        return { 
+            success: false,
+            error: `Erro ao gerar planilha: ${error.toString()}` 
+        };
     }
+}
 
-    resumo.setRowHeights(1, 2, 48);
-    resumo.setColumnWidths(1, 6, 160);
-    resumo.getRange("C1").setValue("THX LOG - Relatorio Operacional").setFontSize(16).setFontWeight("bold");
-    resumo.getRange("C2").setValue("Gerado em: " + Utilities.formatDate(now, tz, "dd/MM/yyyy HH:mm"))
-      .setFontSize(10).setFontColor("#64748B");
-
-    const totalStops = drivers.reduce((acc, d) => acc + ((d.detalhes || []).length), 0);
-    resumo.getRange("A4:F4").setValues([[
-      "Total", "Em Rota", "Criticos", "Finalizados", "Rotas", "Paradas"
-    ]]).setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
-    resumo.getRange("A5:F5").setValues([[
-      stats.total || 0,
-      stats.emRota || 0,
-      stats.criticos || 0,
-      stats.finalizados || 0,
-      drivers.length,
-      totalStops
-    ]]).setFontWeight("bold");
-
-    // Aba Rotas
-    const rotas = ss.insertSheet("Rotas");
-    const rotasHeaders = [
-      "Motorista", "Placa", "Veiculo", "Unidade", "Plano",
-      "Status", "Status ClickUp", "Saida", "Tempo Rota",
-      "Entregas", "Progresso %", "Devolucao %", "Entregue %",
-      "Peso", "Valor Total", "Telefone"
-    ];
-    rotas.getRange(1, 1, 1, rotasHeaders.length).setValues([rotasHeaders])
-      .setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
-
-    const rotasRows = drivers.map(d => ([
-      d.motorista || "",
-      d.placa || "",
-      d.veiculo || "",
-      d.unidade || "",
-      d.plano || "",
-      d.statusLabel || d.status || "",
-      d.statusClickup || "",
-      d.dataSaida || "",
-      d.tempoRota || "",
-      d.entregas || "",
-      Number(d.progresso || 0),
-      Number(d.devolucaoPct || 0),
-      Number(d.entreguePct || 0),
-      Number(d.peso || 0),
-      Number(d.valorTotal || 0),
-      d.tel || ""
-    ]));
-    if (rotasRows.length > 0) {
-      rotas.getRange(2, 1, rotasRows.length, rotasHeaders.length).setValues(rotasRows);
+/**
+ * ============================================================================
+ * FORMATAÇÃO CONDICIONAL
+ * ============================================================================
+ */
+function applyConditionalFormatting(sheet, rowCount) {
+    try {
+        const statusRange = sheet.getRange(2, 1, rowCount, 1);
+        
+        // Verde para "FINALIZADO"
+        const ruleFinalizado = SpreadsheetApp.newConditionalFormatRule()
+            .whenTextContains("FINALIZADO")
+            .setBackground("#D4EDDA")
+            .setFontColor("#155724")
+            .setRanges([statusRange])
+            .build();
+        
+        // Amarelo para "EM ROTA"
+        const ruleEmRota = SpreadsheetApp.newConditionalFormatRule()
+            .whenTextContains("EM ROTA")
+            .setBackground("#FFF3CD")
+            .setFontColor("#856404")
+            .setRanges([statusRange])
+            .build();
+        
+        // Vermelho para "CRÍTICO"
+        const ruleCritico = SpreadsheetApp.newConditionalFormatRule()
+            .whenTextContains("CRÍTICO")
+            .setBackground("#F8D7DA")
+            .setFontColor("#721C24")
+            .setRanges([statusRange])
+            .build();
+        
+        // Laranja para "RESSALVA"
+        const ruleRessalva = SpreadsheetApp.newConditionalFormatRule()
+            .whenTextContains("RESSALVA")
+            .setBackground("#FFE5CC")
+            .setFontColor("#CC5500")
+            .setRanges([statusRange])
+            .build();
+        
+        const rules = sheet.getConditionalFormatRules();
+        rules.push(ruleFinalizado, ruleEmRota, ruleCritico, ruleRessalva);
+        sheet.setConditionalFormatRules(rules);
+        
+        Logger.log("✅ Formatação condicional aplicada");
+        
+    } catch (error) {
+        Logger.log(`⚠️ Erro ao aplicar formatação condicional: ${error}`);
     }
-    rotas.setFrozenRows(1);
-    rotas.autoResizeColumns(1, rotasHeaders.length);
-    rotas.getRange(2, 11, Math.max(rotasRows.length, 1), 3).setNumberFormat("0");
-    rotas.getRange(2, 14, Math.max(rotasRows.length, 1), 1).setNumberFormat("0");
-    rotas.getRange(2, 15, Math.max(rotasRows.length, 1), 1).setNumberFormat("R$ #,##0.00");
+}
 
-    // Aba Paradas
-    const paradas = ss.insertSheet("Paradas");
-    const paradasHeaders = [
-      "Plano", "Motorista", "Seq", "Cliente", "Status",
-      "NFe", "Hora", "Saida", "Permanencia",
-      "Peso", "Valor", "Endereco"
-    ];
-    paradas.getRange(1, 1, 1, paradasHeaders.length).setValues([paradasHeaders])
-      .setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
-
-    const paradasRows = [];
-    drivers.forEach(d => {
-      (d.detalhes || []).forEach(stop => {
-        paradasRows.push([
-          d.plano || "",
-          d.motorista || "",
-          Number(stop.seq || 0),
-          stop.cliente || "",
-          stop.status || "",
-          stop.nfe || "",
-          stop.hora || "",
-          stop.saida || "",
-          stop.permanencia || "",
-          Number(stop.peso || 0),
-          Number(stop.valor || 0),
-          stop.enderecoCompleto || ""
-        ]);
-      });
-    });
-    if (paradasRows.length > 0) {
-      paradas.getRange(2, 1, paradasRows.length, paradasHeaders.length).setValues(paradasRows);
+/**
+ * ============================================================================
+ * ABA DE ESTATÍSTICAS
+ * ============================================================================
+ */
+function addStatisticsSheet(ss, drivers) {
+    try {
+        const statsSheet = ss.insertSheet("Estatísticas");
+        
+        // Calcula estatísticas
+        const total = drivers.length;
+        const emRota = drivers.filter(d => d.status === "EM_ROTA").length;
+        const criticos = drivers.filter(d => d.status === "CRITICO").length;
+        const finalizados = drivers.filter(d => d.status === "FINALIZADO").length;
+        const ressalvas = drivers.filter(d => d.status === "RESSALVA").length;
+        
+        const totalEntregas = drivers.reduce((sum, d) => sum + (parseInt(d.entregas) || 0), 0);
+        const totalPeso = drivers.reduce((sum, d) => sum + (parseFloat(d.peso) || 0), 0);
+        const totalValor = drivers.reduce((sum, d) => sum + (parseFloat(d.valorTotal) || 0), 0);
+        
+        const progressoMedio = drivers.reduce((sum, d) => sum + (parseFloat(d.progresso) || 0), 0) / total;
+        
+        // Agrupa por unidade
+        const unidades = {};
+        drivers.forEach(d => {
+            const unidade = d.unidade || "Sem Unidade";
+            if (!unidades[unidade]) {
+                unidades[unidade] = 0;
+            }
+            unidades[unidade]++;
+        });
+        
+        // Monta dados da aba
+        const statsData = [
+            ["📊 ESTATÍSTICAS DO DASHBOARD", ""],
+            [""],
+            ["📅 Data/Hora da Exportação:", new Date().toLocaleString('pt-BR')],
+            [""],
+            ["═══════════════════════════", "═══════════════"],
+            ["🚛 RESUMO GERAL", ""],
+            ["═══════════════════════════", "═══════════════"],
+            ["Total de Rotas:", total],
+            ["Em Rota:", emRota],
+            ["Críticos:", criticos],
+            ["Finalizados:", finalizados],
+            ["Ressalvas:", ressalvas],
+            [""],
+            ["═══════════════════════════", "═══════════════"],
+            ["📦 TOTAIS", ""],
+            ["═══════════════════════════", "═══════════════"],
+            ["Total de Entregas:", totalEntregas],
+            ["Peso Total (kg):", totalPeso],
+            ["Valor Total:", totalValor],
+            ["Progresso Médio (%):", progressoMedio],
+            [""],
+            ["═══════════════════════════", "═══════════════"],
+            ["🏢 POR UNIDADE", "Quantidade"],
+            ["═══════════════════════════", "═══════════════"]
+        ];
+        
+        // Adiciona dados por unidade
+        Object.keys(unidades).sort().forEach(unidade => {
+            statsData.push([unidade, unidades[unidade]]);
+        });
+        
+        // Escreve dados
+        statsSheet.getRange(1, 1, statsData.length, 2).setValues(statsData);
+        
+        // Formata título
+        statsSheet.getRange(1, 1, 1, 2).merge();
+        statsSheet.getRange(1, 1).setBackground("#1a73e8");
+        statsSheet.getRange(1, 1).setFontColor("#FFFFFF");
+        statsSheet.getRange(1, 1).setFontWeight("bold");
+        statsSheet.getRange(1, 1).setFontSize(14);
+        statsSheet.getRange(1, 1).setHorizontalAlignment("center");
+        
+        // Formata seções
+        const sectionRows = [6, 14, 22];
+        sectionRows.forEach(row => {
+            statsSheet.getRange(row, 1, 1, 2).setBackground("#E8F0FE");
+            statsSheet.getRange(row, 1, 1, 2).setFontWeight("bold");
+        });
+        
+        // Formata valores
+        statsSheet.getRange(18, 2).setNumberFormat("#,##0.00");
+        statsSheet.getRange(19, 2).setNumberFormat("R$ #,##0.00");
+        statsSheet.getRange(20, 2).setNumberFormat("0.00%");
+        
+        // Ajusta largura
+        statsSheet.setColumnWidth(1, 300);
+        statsSheet.setColumnWidth(2, 150);
+        
+        Logger.log("✅ Aba de estatísticas criada");
+        
+    } catch (error) {
+        Logger.log(`⚠️ Erro ao criar aba de estatísticas: ${error}`);
     }
-    paradas.setFrozenRows(1);
-    paradas.autoResizeColumns(1, paradasHeaders.length);
-    paradas.getRange(2, 3, Math.max(paradasRows.length, 1), 1).setNumberFormat("0");
-    paradas.getRange(2, 10, Math.max(paradasRows.length, 1), 1).setNumberFormat("0");
-    paradas.getRange(2, 11, Math.max(paradasRows.length, 1), 1).setNumberFormat("R$ #,##0.00");
-
-    const rotasCsv = toCsv([rotasHeaders].concat(rotasRows));
-    const paradasCsv = toCsv([paradasHeaders].concat(paradasRows));
-
-    const rotasBlob = Utilities.newBlob(rotasCsv, MimeType.CSV, "Rotas.csv");
-    const paradasBlob = Utilities.newBlob(paradasCsv, MimeType.CSV, "Paradas.csv");
-    const zipBlob = Utilities.zip([rotasBlob, paradasBlob], reportName + ".zip");
-    const exportFile = DriveApp.createFile(zipBlob);
-    DriveApp.getFileById(ss.getId()).setTrashed(true);
-
-    const downloadUrl = "https://drive.google.com/uc?export=download&id=" + exportFile.getId();
-    return { url: downloadUrl, viewUrl: exportFile.getUrl(), fileId: exportFile.getId() };
-  } catch (e) {
-    console.error("Erro ao exportar CSV: " + e.message);
-    return { error: "Erro ao exportar CSV: " + e.message };
-  }
 }
 
 // Compatibilidade com chamadas antigas
