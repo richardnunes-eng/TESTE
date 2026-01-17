@@ -806,7 +806,7 @@ window.openModal = function(id) {
     let clickX = e.clientX;
     let clickY = e.clientY;
     const menuWidth = 240;
-    const menuHeight = 280;
+    const menuHeight = 330;
 
     if (clickX + menuWidth > window.innerWidth) {
         menu.style.left = (clickX - menuWidth) + 'px';
@@ -856,6 +856,13 @@ function actionAdiantamento() {
     const valor = prompt("💰 Qual o valor do adiantamento (R$)?");
     if(valor) {
         alert(`Solicitação de R$ ${valor} enviada para o financeiro!`);
+    }
+}
+
+function actionDebito() {
+    const valor = prompt("🧾 Qual o valor do débito (R$)?");
+    if (valor) {
+        alert(`Débito de R$ ${valor} lançado com sucesso!`);
     }
 }
 
