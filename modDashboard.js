@@ -493,7 +493,7 @@ function exportDashboardCsv() {
         Logger.log("📊 Iniciando exportação de planilha...");
         
         // 1️⃣ Obtém os dados do dashboard
-        const dashboardData = getDashboardData('force');
+        const dashboardData = getDashboardData();
         
         if (!dashboardData || !dashboardData.drivers || dashboardData.drivers.length === 0) {
             Logger.log("⚠️ Nenhum dado encontrado para exportar");

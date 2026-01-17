@@ -534,7 +534,7 @@ function exportCsv() {
     if (btn) {
         btn.setAttribute('disabled', 'true');
     }
-    showGlobalLoader('Gerando planilha...', 'soft');
+    showGlobalLoader('Gerando planilha...');
 
     google.script.run
         .withSuccessHandler(res => {
