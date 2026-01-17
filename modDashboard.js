@@ -549,6 +549,12 @@ function exportDashboardCsv() {
         // 6️⃣ Prepara dados
         const rows = [];
         
+        const normalizePercent = value => {
+            const numeric = parseFloat(value);
+            if (Number.isNaN(numeric)) return 0;
+            return numeric > 1 ? numeric / 100 : numeric;
+        };
+
         drivers.forEach(driver => {
             const row = [
                 driver.statusLabel || "-",
@@ -559,9 +565,9 @@ function exportDashboardCsv() {
                 driver.unidade || "-",
                 driver.plano || "-",
                 driver.dataSaida || "-",
-                parseFloat(driver.progresso) || 0,
-                parseFloat(driver.entreguePct) || 0,
-                parseFloat(driver.devolucaoPct) || 0,
+                normalizePercent(driver.progresso),
+                normalizePercent(driver.entreguePct),
+                normalizePercent(driver.devolucaoPct),
                 parseInt(driver.entregas) || 0,
                 parseFloat(driver.peso) || 0,
                 parseFloat(driver.valorTotal) || 0,
@@ -617,26 +623,25 @@ function exportDashboardCsv() {
         // 1️⃣2️⃣ Adiciona filtros
         sheet.getRange(1, 1, lastRow, headers.length).createFilter();
         
-        // 1️⃣3️⃣ Adiciona aba de estatísticas
-        addStatisticsSheet(ss, drivers);
-        
-        // 1️⃣4️⃣ Move para o início
+        // 1️⃣3️⃣ Move para o início
         ss.setActiveSheet(sheet);
         
-        // 1️⃣5️⃣ Compartilha com o usuário
+        // 1️⃣4️⃣ Compartilha com o usuário
         const userEmail = Session.getActiveUser().getEmail();
         if (userEmail) {
             ss.addEditor(userEmail);
             Logger.log(`✅ Planilha compartilhada com: ${userEmail}`);
         }
         
-        // 1️⃣6️⃣ Obtém URL e retorna
+        // 1️⃣5️⃣ Obtém URL e retorna
         const url = ss.getUrl();
+        const downloadUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=xlsx`;
         Logger.log(`✅ Exportação concluída: ${url}`);
         
         return { 
             success: true,
             url: url,
+            downloadUrl: downloadUrl,
             fileName: nomePlanilha,
             rowCount: rows.length
         };
