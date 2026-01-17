@@ -1,6 +1,9 @@
 /**
  * ==============================================================================
- * ARQUIVO: modDashboard.gs (VERSÃO FINAL - CORRIGIDA)
+ * ARQUIVO: modDashboard.gs (VERSÃO CORRIGIDA - NFE SIMPLIFICADA)
+ * ==============================================================================
+ * ✅ CORREÇÃO: Chave de NFe agora é PLANO + CÓDIGO DO CLIENTE (simples)
+ * ✅ Valor vem do plannedSize3 do GreenMile
  * ==============================================================================
  */
 
@@ -94,42 +97,42 @@ function getDashboardData(modo) {
       return { error: "Coluna PLANO não encontrada em ENTREGAS.", drivers: [], stats: {} };
     }
 
-    // Mapeamento NFe (abordagem mesclada)
-    const mapNfeByPlanClientKey = new Map();
-    const mapNfeByClientKey = new Map();
-    const mapPlanIdByRouteKey = new Map();
+    // ========================================================================
+    // ✅ CORREÇÃO: Mapeamento NFe SIMPLIFICADO (PLANO + CÓDIGO CLIENTE)
+    // ========================================================================
+    const mapNfeByPlanoCliente = new Map();  // Chave: "PLANO|CLIENTE"
+    const mapNfeByClienteOnly = new Map();   // Fallback: só código do cliente
 
-    // Primeiro: mapear Plan IDs por Route Key
-    if (colMain.PLANO !== -1 && colMain.ID_CLICKUP !== -1 && colMain.TIPO !== -1) {
-      for (let i = 1; i < dataMainRaw.length; i++) {
-        const tipo = String(dataMainRaw[i][colMain.TIPO] || "").toLowerCase();
-        if (!tipo.includes("principal")) continue;
-        const planoFull = String(dataMainRaw[i][colMain.PLANO] || "");
-        const planoChave = normalizarChave(planoFull.split('-')[0]);
-        const planId = String(dataMainRaw[i][colMain.ID_CLICKUP] || "").trim();
-        if (planoChave && planId) mapPlanIdByRouteKey.set(planoChave, planId);
-      }
-    }
-
-    // Segundo: mapear NFes
-    if (colMain.ID_GM_LOC !== -1 && colMain.CHECKLISTS !== -1) {
+    if (colMain.PLANO !== -1 && colMain.ID_GM_LOC !== -1 && colMain.CHECKLISTS !== -1) {
       for (let i = 1; i < dataMainDisplay.length; i++) {
+        // Pegar o plano (route.key) da linha
+        const planoFull = String(dataMainDisplay[i][colMain.PLANO] || "").trim();
+        const planoChave = normalizarChave(planoFull.split('-')[0]); // Ex: "610123"
+        
+        // Código do cliente (location.key)
         const clientId = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
+        
+        // Número da NFe
         const nfe = String(dataMainDisplay[i][colMain.CHECKLISTS] || "").trim();
-        const taskId = colMain.ID_CLICKUP !== -1 ? String(dataMainDisplay[i][colMain.ID_CLICKUP] || "").trim() : "";
-        const parentId = colMain.ID_PAI !== -1 ? String(dataMainDisplay[i][colMain.ID_PAI] || "").trim() : "";
-        const planId = parentId && parentId !== "-" ? parentId : taskId;
-
-        if (clientId && nfe && nfe !== "" && nfe !== "---") {
-          if (planId) {
-            const planClientKey = buildNfeKey({ parentId: planId, clientId });
-            addNfeToMap(mapNfeByPlanClientKey, planClientKey, nfe);
+        
+        if (nfe && nfe !== "" && nfe !== "---" && nfe !== "-") {
+          // ✅ CHAVE PRINCIPAL: PLANO + CLIENTE
+          if (planoChave && clientId) {
+            const chavePrincipal = `${planoChave}|${clientId}`;
+            addNfeToMap(mapNfeByPlanoCliente, chavePrincipal, nfe);
+            console.log(`📝 NFe mapeada: ${chavePrincipal} => ${nfe}`);
           }
-
-          addNfeToMap(mapNfeByClientKey, clientId, nfe);
+          
+          // Fallback: só pelo cliente (caso não encontre pela chave principal)
+          if (clientId) {
+            addNfeToMap(mapNfeByClienteOnly, clientId, nfe);
+          }
         }
       }
     }
+    
+    console.log(`📊 Total de NFes mapeadas por Plano+Cliente: ${mapNfeByPlanoCliente.size}`);
+    console.log(`📊 Total de NFes mapeadas só por Cliente: ${mapNfeByClienteOnly.size}`);
 
     // Mapeamento Motoristas
     const mapMotoristasAux = new Map();
@@ -176,6 +179,8 @@ function getDashboardData(modo) {
         
         const pesoStop = parseNumeroSeguro(row[colGM.PESO_P] || row[colGM.PESO_A] || 0);
         rota.peso += pesoStop;
+        
+        // ✅ VALOR: Vem do plannedSize3 do GreenMile
         const valorStop = parseNumeroSeguro(row[colGM.VALOR]);
         rota.valor += valorStop;
 
@@ -193,10 +198,16 @@ function getDashboardData(modo) {
           row[colGM.LOC_CITY]
         );
 
-        // Lookup de NFe usando a estratégia do main
+        // ========================================================================
+        // ✅ CORREÇÃO: Lookup de NFe usando PLANO + CÓDIGO DO CLIENTE
+        // ========================================================================
         const clientId = String(row[colGM.LOC_KEY] || "").trim();
-        const planId = mapPlanIdByRouteKey.get(rKey) || "";
-        const planClientKey = buildNfeKey({ parentId: planId, clientId });
+        const chavePlanoCliente = `${rKey}|${clientId}`;
+        
+        // Busca primeiro por PLANO+CLIENTE, depois só por CLIENTE como fallback
+        const nfeEncontrada = mapNfeByPlanoCliente.get(chavePlanoCliente)
+          || mapNfeByClienteOnly.get(clientId)
+          || "---";
 
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
@@ -208,10 +219,8 @@ function getDashboardData(modo) {
           isDev: isDev,
           isDone: isDone,
           permanencia: permanencia,
-          nfe: mapNfeByPlanClientKey.get(planClientKey)
-            || mapNfeByClientKey.get(clientId)
-            || "---",
-          valor: valorStop,
+          nfe: nfeEncontrada,
+          valor: valorStop,  // ✅ Valor do plannedSize3
           peso: pesoStop,
           enderecoCompleto: enderecoCompleto
         });
@@ -398,14 +407,7 @@ function montarEnderecoCompleto(desc, addressLine1, district, city) {
   return partes.join(" - ");
 }
 
-function buildNfeKey({ taskId, parentId, clientId }) {
-  const parts = [];
-  if (taskId) parts.push(`task:${taskId}`);
-  if (parentId) parts.push(`parent:${parentId}`);
-  if (clientId) parts.push(`client:${clientId}`);
-  return parts.join("|");
-}
-
+// ✅ FUNÇÃO SIMPLIFICADA - Não precisa mais do buildNfeKey complexo
 function addNfeToMap(map, key, nfe) {
   if (!key || !nfe) return;
   const atual = map.get(key);
