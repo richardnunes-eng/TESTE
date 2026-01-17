@@ -95,7 +95,6 @@ function getDashboardData(modo) {
     }
 
     // Mapeamento NFe (abordagem mesclada)
-    const mapNfeByCompositeKey = new Map();
     const mapNfeByPlanClientKey = new Map();
     const mapNfeByClientKey = new Map();
     const mapPlanIdByRouteKey = new Map();
@@ -122,9 +121,6 @@ function getDashboardData(modo) {
         const planId = parentId && parentId !== "-" ? parentId : taskId;
 
         if (clientId && nfe && nfe !== "" && nfe !== "---") {
-          const compositeKey = buildNfeKey({ taskId, parentId, clientId });
-          addNfeToMap(mapNfeByCompositeKey, compositeKey, nfe);
-
           if (planId) {
             const planClientKey = buildNfeKey({ parentId: planId, clientId });
             addNfeToMap(mapNfeByPlanClientKey, planClientKey, nfe);
@@ -178,8 +174,8 @@ function getDashboardData(modo) {
         if (isDone) rota.feitos++;
         if (isDev) rota.dev++;
         
-        const peso = parseFloat(row[colGM.PESO_P] || row[colGM.PESO_A] || 0);
-        rota.peso += isNaN(peso) ? 0 : peso;
+        const pesoStop = parseNumeroSeguro(row[colGM.PESO_P] || row[colGM.PESO_A] || 0);
+        rota.peso += pesoStop;
         const valorStop = parseNumeroSeguro(row[colGM.VALOR]);
         rota.valor += valorStop;
 
@@ -205,6 +201,7 @@ function getDashboardData(modo) {
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
           cliente: String(row[colGM.CLIENTE] || "").substring(0, 25),
+          clienteCodigo: clientId || "---",
           status: isDev ? "Devolução" : (isDone ? "Realizado" : "Pendente"),
           hora: formatarHora(dArr),
           saida: formatarHora(dDep),
@@ -215,6 +212,7 @@ function getDashboardData(modo) {
             || mapNfeByClientKey.get(clientId)
             || "---",
           valor: valorStop,
+          peso: pesoStop,
           enderecoCompleto: enderecoCompleto
         });
       }
