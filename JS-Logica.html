@@ -968,21 +968,37 @@ function setClickupStatus(novoStatus) {
     if (!driver) { alert("Erro: Motorista não encontrado."); return; }
     if (!driver.clickupId) { alert("Erro: Esta rota não tem ID do ClickUp vinculado."); return; }
 
+    const prevStatus = driver.statusClickup;
+    const prevColor = driver.statusClickupColor;
+
+    driver.statusClickup = novoStatus;
+    driver.statusClickupColor = getClickupLabelColor(novoStatus);
+    saveToCache(state.allDrivers);
+    applyPipeline();
+
     showClickupOverlay('Atualizando...', 'Enviando novo status ao ClickUp...');
 
     google.script.run
         .withSuccessHandler((res) => {
             if (res.success) {
-                driver.statusClickup = novoStatus;
-                driver.statusClickupColor = res.color || '';
+                driver.statusClickup = res.status || novoStatus;
+                driver.statusClickupColor = res.color || driver.statusClickupColor || '';
                 saveToCache(state.allDrivers);
                 applyPipeline();
                 showClickupOverlay('Status atualizado!', 'Sincronizado com sucesso no ClickUp.');
             } else {
+                driver.statusClickup = prevStatus;
+                driver.statusClickupColor = prevColor;
+                saveToCache(state.allDrivers);
+                applyPipeline();
                 alert("Erro ao atualizar status: " + res.msg);
             }
         })
         .withFailureHandler((err) => { 
+            driver.statusClickup = prevStatus;
+            driver.statusClickupColor = prevColor;
+            saveToCache(state.allDrivers);
+            applyPipeline();
             alert("Erro de conexão: " + err);
         })
         .atualizarStatusClickupBackend(driver.clickupId, novoStatus, driver.id);
