@@ -1048,7 +1048,10 @@ window.renderDetailedModal = function(id) {
                 }
             }
 
-            let valorNum = parseFloat(String(s.valor).replace('R$', '').replace('.', '').replace(',', '.')) || 0;
+            // ✅ CORRETO
+            let valorNum = typeof s.valor === 'number' 
+                ? s.valor 
+                : parseFloat(String(s.valor).replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
             let hasValue = valorNum > 0;
             let hasNfe = (s.nfe && s.nfe !== "" && s.nfe !== "---");
             let pesoNum = parseFloat(String(s.peso).replace(',', '.')) || 0;
