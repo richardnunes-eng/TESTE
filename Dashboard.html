@@ -242,11 +242,12 @@ self.onmessage = function(e) {
     let result = [...drivers];
     
     // Filtro de data
-    if (filters.dateStart || filters.dateEnd) {
+    const effectiveEnd = filters.dateEnd || filters.dateStart;
+    if (filters.dateStart || effectiveEnd) {
         result = result.filter(d => {
             if (!d.dataSaidaIso) return false;
             if (filters.dateStart && d.dataSaidaIso < filters.dateStart) return false;
-            if (filters.dateEnd && d.dataSaidaIso > filters.dateEnd) return false;
+            if (effectiveEnd && d.dataSaidaIso > effectiveEnd) return false;
             return true;
         });
     }

@@ -271,11 +271,12 @@ function applyPipeline(showLoader = true) {
             // --- FILTRO DE DATA ---
             const start = document.getElementById('dateStart')?.value;
             const end = document.getElementById('dateEnd')?.value;
-            if (start || end) {
+            const effectiveEnd = end || start;
+            if (start || effectiveEnd) {
                 result = result.filter(d => {
                     if (!d.dataSaidaIso) return false;
                     if (start && d.dataSaidaIso < start) return false;
-                    if (end && d.dataSaidaIso > end) return false;
+                    if (effectiveEnd && d.dataSaidaIso > effectiveEnd) return false;
                     return true;
                 });
             }
