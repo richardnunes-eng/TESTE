@@ -120,6 +120,28 @@
 
     .btn-refresh { width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--input-border); background: var(--bg-card); color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s; box-shadow: var(--shadow-sm); }
     .btn-refresh:hover { border-color: var(--primary); color: var(--primary); box-shadow: 0 0 15px var(--primary-glow); }
+
+    .btn-export {
+        height: 50px;
+        padding: 0 18px;
+        border-radius: 999px;
+        border: 2px solid var(--input-border);
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(16, 185, 129, 0.12));
+        color: var(--text-main);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        transition: all 0.2s ease;
+        box-shadow: var(--shadow-sm);
+    }
+    .btn-export:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); box-shadow: 0 6px 16px rgba(59, 130, 246, 0.15); }
+    .btn-export:disabled { opacity: 0.7; cursor: wait; transform: none; }
+    .btn-export .material-icons-round { font-size: 18px; }
     
     /* CLASSE DE ROTAÇÃO FIXA */
     .rotating { 

@@ -482,6 +482,143 @@ function getDashboardData(modo) {
   }
 }
 
+// =============================================================================
+// EXPORTAR PLANILHA XLSX FORMATADA
+// =============================================================================
+function exportDashboardXlsx() {
+  try {
+    const payload = getDashboardData('check');
+    if (!payload || payload.error) {
+      return { error: payload && payload.error ? payload.error : "Erro ao gerar dados." };
+    }
+
+    const drivers = payload.drivers || [];
+    const stats = payload.stats || {};
+    const tz = Session.getScriptTimeZone();
+    const now = new Date();
+    const stamp = Utilities.formatDate(now, tz, "yyyyMMdd_HHmm");
+    const reportName = "THX_LOG_Dashboard_" + stamp;
+
+    const ss = SpreadsheetApp.create(reportName);
+    const resumo = ss.getActiveSheet();
+    resumo.setName("Resumo");
+
+    // Logo + cabeçalho
+    const logoId = "1Ft7TTx-y4bLisPyCnBeXZmh9gPgLFZ1T";
+    try {
+      const logoBlob = DriveApp.getFileById(logoId).getBlob();
+      resumo.insertImage(logoBlob, 1, 1);
+    } catch (e) {
+      console.warn("Logo indisponivel: " + e.message);
+    }
+
+    resumo.setRowHeights(1, 2, 48);
+    resumo.setColumnWidths(1, 6, 160);
+    resumo.getRange("C1").setValue("THX LOG - Relatorio Operacional").setFontSize(16).setFontWeight("bold");
+    resumo.getRange("C2").setValue("Gerado em: " + Utilities.formatDate(now, tz, "dd/MM/yyyy HH:mm"))
+      .setFontSize(10).setFontColor("#64748B");
+
+    const totalStops = drivers.reduce((acc, d) => acc + ((d.detalhes || []).length), 0);
+    resumo.getRange("A4:F4").setValues([[
+      "Total", "Em Rota", "Criticos", "Finalizados", "Rotas", "Paradas"
+    ]]).setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+    resumo.getRange("A5:F5").setValues([[
+      stats.total || 0,
+      stats.emRota || 0,
+      stats.criticos || 0,
+      stats.finalizados || 0,
+      drivers.length,
+      totalStops
+    ]]).setFontWeight("bold");
+
+    // Aba Rotas
+    const rotas = ss.insertSheet("Rotas");
+    const rotasHeaders = [
+      "Motorista", "Placa", "Veiculo", "Unidade", "Plano",
+      "Status", "Status ClickUp", "Saida", "Tempo Rota",
+      "Entregas", "Progresso %", "Devolucao %", "Entregue %",
+      "Peso", "Valor Total", "Telefone"
+    ];
+    rotas.getRange(1, 1, 1, rotasHeaders.length).setValues([rotasHeaders])
+      .setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+
+    const rotasRows = drivers.map(d => ([
+      d.motorista || "",
+      d.placa || "",
+      d.veiculo || "",
+      d.unidade || "",
+      d.plano || "",
+      d.statusLabel || d.status || "",
+      d.statusClickup || "",
+      d.dataSaida || "",
+      d.tempoRota || "",
+      d.entregas || "",
+      Number(d.progresso || 0),
+      Number(d.devolucaoPct || 0),
+      Number(d.entreguePct || 0),
+      Number(d.peso || 0),
+      Number(d.valorTotal || 0),
+      d.tel || ""
+    ]));
+    if (rotasRows.length > 0) {
+      rotas.getRange(2, 1, rotasRows.length, rotasHeaders.length).setValues(rotasRows);
+    }
+    rotas.setFrozenRows(1);
+    rotas.autoResizeColumns(1, rotasHeaders.length);
+    rotas.getRange(2, 11, Math.max(rotasRows.length, 1), 3).setNumberFormat("0");
+    rotas.getRange(2, 14, Math.max(rotasRows.length, 1), 1).setNumberFormat("0");
+    rotas.getRange(2, 15, Math.max(rotasRows.length, 1), 1).setNumberFormat("R$ #,##0.00");
+
+    // Aba Paradas
+    const paradas = ss.insertSheet("Paradas");
+    const paradasHeaders = [
+      "Plano", "Motorista", "Seq", "Cliente", "Status",
+      "NFe", "Hora", "Saida", "Permanencia",
+      "Peso", "Valor", "Endereco"
+    ];
+    paradas.getRange(1, 1, 1, paradasHeaders.length).setValues([paradasHeaders])
+      .setFontWeight("bold").setBackground("#0F172A").setFontColor("#FFFFFF");
+
+    const paradasRows = [];
+    drivers.forEach(d => {
+      (d.detalhes || []).forEach(stop => {
+        paradasRows.push([
+          d.plano || "",
+          d.motorista || "",
+          Number(stop.seq || 0),
+          stop.cliente || "",
+          stop.status || "",
+          stop.nfe || "",
+          stop.hora || "",
+          stop.saida || "",
+          stop.permanencia || "",
+          Number(stop.peso || 0),
+          Number(stop.valor || 0),
+          stop.enderecoCompleto || ""
+        ]);
+      });
+    });
+    if (paradasRows.length > 0) {
+      paradas.getRange(2, 1, paradasRows.length, paradasHeaders.length).setValues(paradasRows);
+    }
+    paradas.setFrozenRows(1);
+    paradas.autoResizeColumns(1, paradasHeaders.length);
+    paradas.getRange(2, 3, Math.max(paradasRows.length, 1), 1).setNumberFormat("0");
+    paradas.getRange(2, 10, Math.max(paradasRows.length, 1), 1).setNumberFormat("0");
+    paradas.getRange(2, 11, Math.max(paradasRows.length, 1), 1).setNumberFormat("R$ #,##0.00");
+
+    const exportBlob = DriveApp.getFileById(ss.getId()).getAs(MimeType.MICROSOFT_EXCEL);
+    exportBlob.setName(reportName + ".xlsx");
+    const exportFile = DriveApp.createFile(exportBlob);
+    DriveApp.getFileById(ss.getId()).setTrashed(true);
+
+    return { url: exportFile.getUrl() };
+  } catch (e) {
+    console.error("Erro ao exportar XLSX: " + e.message);
+    return { error: "Erro ao exportar XLSX: " + e.message };
+  }
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================

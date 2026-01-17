@@ -526,6 +526,36 @@ function setView(mode) {
     applyPipeline();
 }
 
+let exportInProgress = false;
+function exportXlsx() {
+    if (exportInProgress) return;
+    exportInProgress = true;
+    const btn = document.getElementById('exportBtn');
+    if (btn) {
+        btn.setAttribute('disabled', 'true');
+    }
+    showGlobalLoader('Gerando planilha...', 'soft');
+
+    google.script.run
+        .withSuccessHandler(res => {
+            hideGlobalLoader();
+            exportInProgress = false;
+            if (btn) btn.removeAttribute('disabled');
+            if (res && res.url) {
+                window.open(res.url, '_blank');
+                return;
+            }
+            alert('N\u00e3o foi poss\u00edvel gerar a planilha.');
+        })
+        .withFailureHandler(err => {
+            hideGlobalLoader();
+            exportInProgress = false;
+            if (btn) btn.removeAttribute('disabled');
+            alert('Erro ao exportar planilha: ' + err);
+        })
+        .exportDashboardXlsx();
+}
+
 // ============================================================================
 // DROPDOWN FILTERS
 // ============================================================================
