@@ -152,7 +152,8 @@ function getDashboardData(modo) {
         
         const peso = parseFloat(row[colGM.PESO_P] || row[colGM.PESO_A] || 0);
         rota.peso += isNaN(peso) ? 0 : peso;
-        rota.valor += parseFloat(row[colGM.VALOR] || 0) || 0;
+        const valorStop = parseNumeroSeguro(row[colGM.VALOR]);
+        rota.valor += valorStop;
 
         // Permanência (tempo no cliente em minutos)
         let permanencia = null;
@@ -160,6 +161,13 @@ function getDashboardData(modo) {
           permanencia = Math.round((dDep.getTime() - dArr.getTime()) / 60000);
           if (permanencia < 0) permanencia = null;
         }
+
+        const enderecoCompleto = montarEnderecoCompleto(
+          row[colGM.LOC_DESC],
+          row[colGM.LOC_ADDRESS],
+          row[colGM.LOC_DISTRICT],
+          row[colGM.LOC_CITY]
+        );
 
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
@@ -170,7 +178,9 @@ function getDashboardData(modo) {
           isDev: isDev,
           isDone: isDone,
           permanencia: permanencia,
-          nfe: mapNfeByStopKey.get(String(row[colGM.LOC_KEY] || "").trim()) || "---"
+          nfe: mapNfeByStopKey.get(String(row[colGM.LOC_KEY] || "").trim()) || "---",
+          valor: valorStop,
+          enderecoCompleto: enderecoCompleto
         });
       }
     }
@@ -330,6 +340,31 @@ function toTitleCase(str) {
   return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()); 
 }
 
+function parseNumeroSeguro(valor) {
+  if (valor === null || valor === undefined) return 0;
+  if (typeof valor === "number") return valor;
+  const normalizado = String(valor)
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\.(?=.*\.)/g, "")
+    .replace(",", ".");
+  const parsed = parseFloat(normalizado);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function montarEnderecoCompleto(desc, addressLine1, district, city) {
+  const vistos = new Set();
+  const partes = [desc, addressLine1, district, city]
+    .map(item => String(item || "").trim())
+    .filter(Boolean)
+    .filter(item => {
+      const chave = item.toLowerCase();
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
+  return partes.join(" - ");
+}
+
 function mapDashboardCols(headers, type) {
   const map = {
     PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
@@ -340,6 +375,7 @@ function mapDashboardCols(headers, type) {
     DATA_SAIDA:-1, ID_CLICKUP:-1,
     UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
     DEV_CODE:-1, CLIENTE:-1, SEQ:-1,
+    LOC_DESC:-1, LOC_ADDRESS:-1, LOC_CITY:-1, LOC_DISTRICT:-1,
     STATUS_CLICKUP:-1
   };
 
@@ -376,7 +412,13 @@ function mapDashboardCols(headers, type) {
       if (t.includes('ACTUALDEPARTURE')) map.DEP = i;
       if (t.includes('UNDELIVERABLECODE') || t.includes('DEVOLUCAO')) map.DEV_CODE = i;
       if (t.includes('DELIVERYSTATUS') || t === 'STOP.DELIVERYSTATUS') map.STATUS = i;
-      if (t.includes('LOCATION.DESCRIPTION') || t === 'NOME DO CLIENTE') map.CLIENTE = i;
+      if (t.includes('LOCATION.DESCRIPTION') || t === 'NOME DO CLIENTE') {
+        map.CLIENTE = i;
+        map.LOC_DESC = i;
+      }
+      if (t.includes('LOCATION.ADDRESSLINE1')) map.LOC_ADDRESS = i;
+      if (t.includes('LOCATION.CITY')) map.LOC_CITY = i;
+      if (t.includes('LOCATION.DISTRICT')) map.LOC_DISTRICT = i;
       if (t.includes('PLANNEDSEQUENCENUM')) map.SEQ = i;
       if (t.includes('PLANNEDSIZE1')) map.PESO_P = i;
       if (t.includes('ACTUALSIZE1')) map.PESO_A = i;
