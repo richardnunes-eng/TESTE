@@ -133,6 +133,100 @@ function getDashboardData(modo) {
     
     console.log(`📝 Total de NFes mapeadas: ${mapNfe.size}`);
 
+    // ========================================================================
+    // ✅ SUBTASKS (REENTREGAS) - AGRUPAR POR TAREFA PAI
+    // ========================================================================
+    const mapSubtasks = new Map();
+
+    if (colMain.TIPO !== -1 && colMain.ID_PAI !== -1) {
+      for (let i = 1; i < dataMainRaw.length; i++) {
+        const tipo = String(dataMainRaw[i][colMain.TIPO] || "").toLowerCase();
+        if (!tipo.includes("subtask")) continue;
+
+        const parentId = String(dataMainRaw[i][colMain.ID_PAI] || "").trim();
+        if (!parentId) continue;
+
+        const nomeSubtask = String(
+          (colMain.NOME !== -1 ? dataMainDisplay[i][colMain.NOME] : dataMainDisplay[i][colMain.PLANO]) ||
+          dataMainRaw[i][colMain.PLANO] ||
+          ""
+        ).trim();
+
+        const statusClickup = String(
+          (colMain.STATUS_CLICKUP !== -1 ? dataMainDisplay[i][colMain.STATUS_CLICKUP] : "") ||
+          dataMainRaw[i][colMain.STATUS_CLICKUP] ||
+          ""
+        ).trim();
+        const statusLower = statusClickup.toLowerCase();
+        const isDone = statusLower.includes("finaliz") || statusLower.includes("conclu") || statusLower.includes("entreg") || statusLower.includes("fechad");
+        const isDev = statusLower.includes("devol") || statusLower.includes("retorn") || statusLower.includes("return");
+
+        const nfeSubtask = colMain.CHECKLISTS !== -1
+          ? String(dataMainDisplay[i][colMain.CHECKLISTS] || "").trim()
+          : "";
+
+        const valorSubtask = colMain.VALOR_MAIN !== -1
+          ? parseNumeroSeguro(dataMainRaw[i][colMain.VALOR_MAIN] || 0)
+          : 0;
+
+        const pesoSubtask = colMain.PESO_MAIN !== -1
+          ? parseNumeroSeguro(dataMainRaw[i][colMain.PESO_MAIN] || 0)
+          : 0;
+
+        const dataOrdem = parseDateSafe(
+          (colMain.DATA_ATUALIZACAO !== -1 ? dataMainRaw[i][colMain.DATA_ATUALIZACAO] : null) ||
+          (colMain.DATA_CRIACAO !== -1 ? dataMainRaw[i][colMain.DATA_CRIACAO] : null)
+        );
+
+        const stop = {
+          seq: 0,
+          cliente: nomeSubtask || "Reentrega",
+          clienteCodigo: "---",
+          status: statusClickup || "Reentrega",
+          hora: "--:--",
+          saida: "--:--",
+          isDev: isDev,
+          isDone: isDone,
+          permanencia: null,
+          nfe: nfeSubtask || "---",
+          valor: valorSubtask,
+          peso: pesoSubtask,
+          enderecoCompleto: "",
+          _ordem: dataOrdem ? dataOrdem.getTime() : null
+        };
+
+        if (!mapSubtasks.has(parentId)) {
+          mapSubtasks.set(parentId, []);
+        }
+        mapSubtasks.get(parentId).push(stop);
+      }
+    }
+
+    const mapSubtaskInfo = new Map();
+    mapSubtasks.forEach((stops, parentId) => {
+      stops.sort((a, b) => {
+        if (a._ordem !== null && b._ordem !== null) return a._ordem - b._ordem;
+        if (a._ordem !== null) return -1;
+        if (b._ordem !== null) return 1;
+        return String(a.cliente || "").localeCompare(String(b.cliente || ""));
+      });
+      stops.forEach((stop, idx) => {
+        stop.seq = idx + 1;
+        delete stop._ordem;
+      });
+
+      const totais = stops.reduce((acc, stop) => {
+        acc.total += 1;
+        if (stop.isDone) acc.feitos += 1;
+        if (stop.isDev) acc.dev += 1;
+        acc.peso += parseNumeroSeguro(stop.peso || 0);
+        acc.valor += parseNumeroSeguro(stop.valor || 0);
+        return acc;
+      }, { total: 0, feitos: 0, dev: 0, peso: 0, valor: 0 });
+
+      mapSubtaskInfo.set(parentId, { ...totais, stops });
+    });
+
     // Mapeamento Motoristas
     const mapMotoristasAux = new Map();
     if (colMot.PLACA !== -1) {
@@ -243,6 +337,8 @@ function getDashboardData(modo) {
       if (!planoChave || processados.has(planoChave)) continue;
       processados.add(planoChave);
 
+      const clickupId = String(dataMainRaw[i][colMain.ID_CLICKUP] || "").trim();
+      const subtaskInfo = clickupId ? mapSubtaskInfo.get(clickupId) : null;
       const placaChave = normalizarChave(dataMainRaw[i][colMain.PLACA]);
       const motoristaInfo = mapMotoristasAux.get(placaChave) || {};
       const dadosGM = mapGMData.get(planoChave);
@@ -295,6 +391,27 @@ function getDashboardData(modo) {
       if (sClass === 'success' || sClass === 'warning') payload.stats.finalizados++;
       if (sClass === 'danger') payload.stats.criticos++;
 
+      const totaisFallback = subtaskInfo || { total: 0, feitos: 0, dev: 0, peso: 0, valor: 0, stops: [] };
+      const detalhes = (dadosGM && dadosGM.stops && dadosGM.stops.length > 0)
+        ? dadosGM.stops
+        : totaisFallback.stops;
+
+      const entregasTexto = (dadosGM && dadosGM.total > 0)
+        ? `${dadosGM.feitos}/${dadosGM.total}`
+        : `${totaisFallback.feitos}/${totaisFallback.total}`;
+
+      const pesoTotal = (dadosGM && dadosGM.total > 0)
+        ? dadosGM.peso
+        : totaisFallback.peso;
+
+      const valorTotal = (dadosGM && dadosGM.total > 0)
+        ? dadosGM.valor
+        : totaisFallback.valor;
+
+      if ((!dadosGM || dadosGM.total === 0) && totaisFallback.total > 0) {
+        prog = Math.round((totaisFallback.feitos / totaisFallback.total) * 100) || 0;
+      }
+
       payload.drivers.push({
         id: planoChave,
         placa: String(dataMainRaw[i][colMain.PLACA] || "").toUpperCase(),
@@ -306,16 +423,16 @@ function getDashboardData(modo) {
         status: status,
         statusLabel: label,
         statusClass: sClass,
-        entregas: dadosGM ? `${dadosGM.feitos}/${dadosGM.total}` : "0/0",
-        peso: dadosGM ? dadosGM.peso.toFixed(0) : "0",
-        valorTotal: dadosGM ? dadosGM.valor : 0,  // ✅ Soma dos plannedSize3
+        entregas: entregasTexto,
+        peso: (pesoTotal || 0).toFixed(0),
+        valorTotal: valorTotal || 0,  // ✅ Soma dos plannedSize3
         unidade: dataMainRaw[i][colMain.UNIDADE] || "---",
         clickupId: dataMainRaw[i][colMain.ID_CLICKUP] || "",
         statusClickup: dataMainRaw[i][colMain.STATUS_CLICKUP] || "",
         dataSaida: dataSaida,
         dataSaidaIso: dataSaidaIso,
         tempoRota: tempoRota,
-        detalhes: dadosGM ? dadosGM.stops : []
+        detalhes: detalhes
       });
     }
 
@@ -415,7 +532,8 @@ function mapDashboardCols(headers, type) {
     UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
     DEV_CODE:-1, CLIENTE:-1, SEQ:-1, CLIENT_ID:-1, PARENT_ID:-1,
     LOC_DESC:-1, LOC_ADDRESS:-1, LOC_CITY:-1, LOC_DISTRICT:-1,
-    STATUS_CLICKUP:-1
+    STATUS_CLICKUP:-1, NOME:-1, DATA_CRIACAO:-1, DATA_ATUALIZACAO:-1,
+    DATA_FECHAMENTO:-1, VALOR_MAIN:-1, PESO_MAIN:-1
   };
 
   headers.forEach((h, i) => {
@@ -424,6 +542,7 @@ function mapDashboardCols(headers, type) {
     // MAIN (Aba ENTREGAS)
     if (type === 'MAIN') {
       if (t === 'PLANO' || t === 'ROTA' || t === 'NOME') map.PLANO = i;
+      if (t === 'NOME') map.NOME = i;
       if (t === 'PLACA') map.PLACA = i;
       if (t === 'MOTORISTA') map.MOTORISTA = i;
       if (t === 'UNIDADE' || t === 'BASE' || t === 'CD' || t === 'FILIAL') map.UNIDADE = i;
@@ -431,10 +550,15 @@ function mapDashboardCols(headers, type) {
       if (t === 'CHECKLISTS' || t === 'CHECKLIST' || t === 'NFE' || t === 'NOTAS') map.CHECKLISTS = i;
       if (t === 'TIPO DE TAREFA' || t === 'TIPO') map.TIPO = i;
       if (t === 'DATA DE SAÍDA' || t === 'DATA DE SAIDA') map.DATA_SAIDA = i;
+      if (t === 'DATA DE CRIAÇÃO' || t === 'DATA DE CRIACAO') map.DATA_CRIACAO = i;
+      if (t === 'DATA DE ATUALIZAÇÃO' || t === 'DATA DE ATUALIZACAO') map.DATA_ATUALIZACAO = i;
+      if (t === 'DATA DE FECHAMENTO') map.DATA_FECHAMENTO = i;
       if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') map.ID_CLICKUP = i;
       if (t === 'ID DO PAI' || t === 'PARENT ID') map.ID_PAI = i;
       if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
       if (t === 'CLIENTE' || t === 'NOME DO CLIENTE') map.CLIENTE = i;
+      if (t.includes('VALOR')) map.VALOR_MAIN = i;
+      if (t.includes('PESO')) map.PESO_MAIN = i;
     }
 
     // MOT (Aba MOTORISTAS)
