@@ -591,6 +591,8 @@ function renderGrid(list) {
         let barColor = getBarColor(d.statusClass);
         let devPct = Math.min(Math.max(parseFloat(d.devolucaoPct) || 0, 0), 100);
         let entreguePct = Math.min(Math.max(parseFloat(d.entreguePct) || 0, 0), 100);
+        let devPct = Math.min(Math.max(parseFloat(d.devolucaoPct) || 0, 0), 100);
+        let entreguePct = Math.min(Math.max(parseFloat(d.entreguePct) || 0, 0), 100);
         let telDisplay = d.tel || 'S/ Tel';
         let clickupBadge = buildClickupBadge(d, 'card');
 
