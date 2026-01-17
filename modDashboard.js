@@ -632,11 +632,13 @@ function exportDashboardCsv() {
         
         // 1️⃣6️⃣ Obtém URL e retorna
         const url = ss.getUrl();
+        const downloadUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=xlsx`;
         Logger.log(`✅ Exportação concluída: ${url}`);
         
         return { 
             success: true,
             url: url,
+            downloadUrl: downloadUrl,
             fileName: nomePlanilha,
             rowCount: rows.length
         };

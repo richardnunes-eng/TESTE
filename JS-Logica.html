@@ -541,9 +541,9 @@ function exportCsv() {
             hideGlobalLoader();
             exportInProgress = false;
             if (btn) btn.removeAttribute('disabled');
-            if (res && res.url) {
+            if (res && (res.downloadUrl || res.url)) {
                 // Evita bloqueio de pop-up; inicia download na mesma aba.
-                window.location.href = res.url;
+                window.location.href = res.downloadUrl || res.url;
                 return;
             }
             alert('N\u00e3o foi poss\u00edvel gerar a planilha.');
