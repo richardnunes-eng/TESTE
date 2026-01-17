@@ -51,9 +51,10 @@ function getLocalIsoDate(dateObj) {
 function getOldestOpenDateIso(drivers) {
     let minIso = null;
     if (!Array.isArray(drivers)) return null;
+    const eligibleStatus = new Set(['EM_ROTA', 'CRITICO']);
     drivers.forEach(d => {
         const statusNorm = String(d.status || '').toUpperCase();
-        if (statusNorm === 'FINALIZADO') return;
+        if (!eligibleStatus.has(statusNorm)) return;
         const iso = d.dataSaidaIso;
         if (!iso) return;
         if (!minIso || iso < minIso) minIso = iso;
