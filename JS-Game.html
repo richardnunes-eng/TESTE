@@ -1,0 +1,95 @@
+<script>
+    // --- GAME LOGIC ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let gameRunning = true;
+    let score = 0;
+    let speed = 2.5; let gravity = 0.25; let jumpPower = -7; 
+    const truck = { x: 50, y: 150, width: 60, height: 30, dy: 0, grounded: true, color: '#2563EB' }; 
+    let obstacles = []; let frame = 0;
+
+    function initGame() { 
+        // Pega a cor correta do CSS para o caminhão
+        truck.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2563EB';
+        gameLoop(); 
+    }
+    
+    function drawTruckVector() {
+        ctx.fillStyle = truck.color;
+        roundRect(ctx, truck.x, truck.y, 40, 15, 2, true); 
+        roundRect(ctx, truck.x, truck.y - 15, 35, 15, 2, true); 
+        ctx.fillStyle = truck.color; roundRect(ctx, truck.x + 42, truck.y - 15, 18, 30, 3, true);
+        ctx.fillStyle = '#1E293B';
+        ctx.beginPath(); ctx.arc(truck.x + 12, truck.y + 15, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(truck.x + 52, truck.y + 15, 5, 0, Math.PI * 2); ctx.fill();
+    }
+    
+    function drawObstacleVector(obs) {
+        ctx.fillStyle = '#F59E0B'; roundRect(ctx, obs.x, obs.y, obs.width, obs.height, 4, true);
+        ctx.strokeStyle = '#B45309'; ctx.lineWidth = 2; ctx.beginPath();
+        ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+        ctx.moveTo(obs.x + obs.width, obs.y); ctx.lineTo(obs.x, obs.y + obs.height); ctx.stroke();
+    }
+    
+    function roundRect(ctx, x, y, width, height, radius, fill) {
+        ctx.beginPath(); ctx.moveTo(x + radius, y); ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius); ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height); ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius); ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y); ctx.closePath(); if (fill) ctx.fill();
+    }
+    
+    function checkCollision(t, obs) {
+        return (t.x < obs.x + obs.width && t.x + t.width > obs.x && t.y < obs.y + obs.height && t.y + t.height > obs.y);
+    }
+    
+    function updateGame() {
+        if (!gameRunning) return;
+        if (!truck.grounded) { truck.dy += gravity; truck.y += truck.dy; }
+        if (truck.y > 150) { truck.y = 150; truck.dy = 0; truck.grounded = true; }
+        if (frame % 140 === 0) { if(Math.random() > 0.3) obstacles.push({ x: 600, y: 155, width: 25, height: 25 }); }
+        for(let i = 0; i < obstacles.length; i++) {
+            let obs = obstacles[i]; obs.x -= speed;
+            if (checkCollision(truck, obs)) { gameOver(); return; }
+        }
+        obstacles = obstacles.filter(obs => obs.x > -50);
+        frame++; score++;
+    }
+    
+    function gameOver() {
+        gameRunning = false; truck.color = '#EF4444';
+        document.getElementById('loadingText').innerText = "BATIDÃO! CLIQUE PARA TENTAR DE NOVO";
+        document.getElementById('loadingText').style.color = '#EF4444'; drawTruckVector();
+    }
+    
+    function resetGame() {
+        gameRunning = true; score = 0; obstacles = []; frame = 0; truck.y = 150; truck.dy = 0;
+        truck.color = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2563EB';
+        document.getElementById('loadingText').innerText = "CARREGANDO SISTEMA... (Pressione ESPAÇO ou Toque para Pular)";
+        document.getElementById('loadingText').style.color = 'var(--text-muted)'; gameLoop();
+    }
+    
+    function drawScore() { ctx.fillStyle = '#64748B'; ctx.font = 'bold 16px Outfit'; ctx.fillText("DISTÂNCIA: " + Math.floor(score/10) + "m", 450, 30); }
+    
+    function gameLoop() {
+        if (!gameRunning && truck.color !== '#EF4444') return; 
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.beginPath(); ctx.moveTo(0, 180); ctx.lineTo(600, 180); ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 2; ctx.stroke();
+        if (truck.color !== '#EF4444') updateGame(); 
+        drawTruckVector(); obstacles.forEach(drawObstacleVector); drawScore();
+        if (truck.color !== '#EF4444') requestAnimationFrame(gameLoop);
+    }
+    
+    function jump() { if (truck.grounded && gameRunning) { truck.dy = jumpPower; truck.grounded = false; } }
+    
+    function handleInput(e) {
+        if(e.type === 'touchstart') e.preventDefault();
+        if (gameRunning) { jump(); } else if (truck.color === '#EF4444') { resetGame(); }
+    }
+    
+    document.addEventListener('keydown', (e) => { if (e.code === 'Space' || e.code === 'ArrowUp') handleInput(e); });
+    canvas.addEventListener('touchstart', handleInput); canvas.addEventListener('click', handleInput);
+    
+    // Inicia quando o DOM carregar
+    document.addEventListener('DOMContentLoaded', () => initGame());
+</script>

@@ -1,0 +1,1085 @@
+<script>
+// ============================================================================
+// JS-LOGICA.HTML - VERSÃO CORRIGIDA E OTIMIZADA
+// ============================================================================
+
+// === ESTADO GERAL (SINGLE SOURCE OF TRUTH) ===
+let state = {
+    allDrivers: [],
+    filters: { unidade: new Set(), veiculo: new Set(), status: 'ALL' },
+    search: '',
+    sort: { key: null, asc: true },
+    viewMode: 'grid'
+};
+
+let searchTimeout = null;
+let loadingSafetyTimer = null;
+let selectedDriverId = null;
+
+// ============================================================================
+// INICIALIZAÇÃO
+// ============================================================================
+window.onload = function() {
+    // Tema escuro/claro
+    try {
+        const themeToggle = document.getElementById('themeToggle');
+        if (localStorage.getItem('theme') === 'dark') { 
+            document.body.classList.add('dark-mode'); 
+            if(document.getElementById('themeIcon')) document.getElementById('themeIcon').innerText = 'light_mode'; 
+        }
+        if(themeToggle) {
+            themeToggle.addEventListener('click', () => { 
+                document.body.classList.toggle('dark-mode'); 
+                localStorage.setItem('theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light'); 
+                const icon = document.getElementById('themeIcon'); 
+                if(icon) icon.innerText = document.body.classList.contains('dark-mode') ? 'light_mode' : 'dark_mode'; 
+            });
+        }
+    } catch(e){ console.warn("Erro ao inicializar tema:", e); }
+
+    // Filtros de data
+    const dateStart = document.getElementById('dateStart');
+    const dateEnd = document.getElementById('dateEnd');
+    if(dateStart && dateEnd) {
+        const runFilter = () => { applyPipeline(); };
+        dateStart.addEventListener('change', runFilter);
+        dateEnd.addEventListener('change', runFilter);
+        const handleEnter = (e) => { if (e.key === 'Enter') { e.target.blur(); runFilter(); } };
+        dateStart.addEventListener('keydown', handleEnter);
+        dateEnd.addEventListener('keydown', handleEnter);
+    }
+
+    setInterval(() => {
+        console.log("📡 Auto-Sync (5 min): Verificando relatórios...");
+        loadData('check'); 
+    }, 300000);
+
+    // Carga Inicial
+    loadFromCache();
+    loadData('check'); 
+};
+
+// ============================================================================
+// SISTEMA DE SUPRESSÃO TEMPORÁRIA (5 MINUTOS)
+// ============================================================================
+function addSuppression(id) {
+    localStorage.setItem(`suppress_${id}`, new Date().getTime());
+}
+
+function isSuppressed(id) {
+    const timestamp = localStorage.getItem(`suppress_${id}`);
+    if (!timestamp) return false;
+
+    const agora = new Date().getTime();
+    const diffMinutos = (agora - parseInt(timestamp)) / 60000;
+
+    if (diffMinutos < 5) return true;
+
+    localStorage.removeItem(`suppress_${id}`);
+    return false;
+}
+
+// ============================================================================
+// SISTEMA DE CACHE
+// ============================================================================
+function loadFromCache() {
+    const cached = localStorage.getItem('thx_dashboard_data_v2'); 
+    if (cached) {
+        try {
+            const data = JSON.parse(cached);
+            state.allDrivers = data || [];
+            renderDashboard({ drivers: state.allDrivers });
+        } catch(e) { console.warn("Cache inválido"); }
+    }
+}
+
+function saveToCache(data) {
+    try {
+        localStorage.setItem('thx_dashboard_data_v2', JSON.stringify(data));
+    } catch(e) { console.warn("Cache cheio"); }
+}
+
+// ============================================================================
+// SUBSTITUA A FUNÇÃO loadData NO JS-Logica.html POR ESTA:
+// ============================================================================
+
+function loadData(modo = 'check') {
+    
+    // Só bloqueia a tela se for manual (Botão)
+    if (modo === 'force') {
+        showGlobalLoader('Sincronizando dados...');
+    }
+    
+    // Ícone gira em todos os modos
+    const icon = document.getElementById('refreshIcon');
+    if(icon) icon.classList.add('rotating');
+
+    // Timeout de segurança - 30s
+    const timeoutId = setTimeout(() => {
+        console.warn("⚠️ Timeout: Requisição demorou demais");
+        if(icon) icon.classList.remove('rotating');
+        hideGlobalLoader();
+    }, 30000);
+    
+    google.script.run
+        .withSuccessHandler(data => {
+            clearTimeout(timeoutId);
+            
+            // ✅ CORREÇÃO: Verifica se data existe antes de acessar propriedades
+            if (!data) {
+                console.error("Erro Load: Resposta vazia do servidor");
+                if(icon) icon.classList.remove('rotating');
+                if(modo === 'force') { 
+                    alert("Erro: Servidor retornou resposta vazia. Tente novamente."); 
+                    hideGlobalLoader(); 
+                }
+                return;
+            }
+            
+            if (data.error) { 
+                console.error("Erro Load:", data.error);
+                if(icon) icon.classList.remove('rotating');
+                if(modo === 'force') { 
+                    alert(data.error); 
+                    hideGlobalLoader(); 
+                }
+                return; 
+            }
+            
+            let incomingDrivers = data.drivers || [];
+
+            // Proteção Anti-Fantasma
+            incomingDrivers.forEach(d => {
+                const statusServidor = (d.statusClickup || '').toLowerCase();
+                const finalizados = ['concluido', 'concluído', 'fechado', 'done', 'finalizada', 'finalizado'];
+                if (!finalizados.includes(statusServidor)) {
+                    if (isSuppressed(d.id)) d.statusClickup = "Finalizada"; 
+                }
+            });
+
+            state.allDrivers = incomingDrivers;
+            saveToCache(state.allDrivers); 
+            
+            // Atualiza Label de Data/Hora
+            const agora = new Date();
+            const horaFmt = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            const dataFmt = agora.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+            const label = document.getElementById('lastUpdateDisplay');
+            if(label) label.innerText = `Atualizado: ${dataFmt} às ${horaFmt}`;
+
+            renderDashboard(); 
+            
+            // Para o ícone e esconde loader
+            if(icon) icon.classList.remove('rotating');
+            if(modo === 'force') hideGlobalLoader();
+        })
+        .withFailureHandler(err => { 
+            clearTimeout(timeoutId);
+            
+            console.error("Erro Crítico:", err);
+            if(icon) icon.classList.remove('rotating');
+            if(modo === 'force') { 
+                alert('Erro: ' + err); 
+                hideGlobalLoader(); 
+            }
+        })
+        .getDashboardData(modo); 
+}
+// ============================================================================
+// RENDER DASHBOARD
+// ============================================================================
+function renderDashboard(dataOpcional) {
+    if (dataOpcional && dataOpcional.drivers) {
+        state.allDrivers = dataOpcional.drivers;
+    }
+
+    if (state.allDrivers.length === 0) return;
+    
+    // Atualiza os Dropdowns de filtro
+    buildFilterOptions('unidade', 'list-unidade');
+    buildFilterOptions('veiculo', 'list-veiculo');
+    
+    // Atualiza o formulário de ocorrência
+    populateFormSelects(state.allDrivers);
+
+    // Desenha a tela aplicando todos os filtros
+    applyPipeline(true);
+    
+    // Esconde o loader inicial com delay
+    setTimeout(() => {
+        stopLoader();
+    }, 800);
+}
+
+// ============================================================================
+// LOADER FUNCTIONS
+// ============================================================================
+function stopLoader() {
+    // Mata o jogo se estiver rodando
+    if(typeof gameRunning !== 'undefined') gameRunning = false;
+
+    // Esconde o loader inicial
+    const loader = document.getElementById('loader');
+    if(loader) { 
+        loader.style.opacity = '0'; 
+        setTimeout(() => { loader.style.display = 'none'; }, 500); 
+    }
+
+    // Para o ícone de girar
+    const icon = document.getElementById('refreshIcon');
+    if(icon) icon.classList.remove('rotating');
+
+    // Esconde o bloqueio de tela
+    hideGlobalLoader();
+}
+
+function showGlobalLoader(msg) {
+    const loader = document.getElementById('globalLoader');
+    const text = document.getElementById('loaderText');
+    if (text) text.innerText = msg || 'Processando...';
+    if (loader) loader.style.display = 'flex';
+    
+    // Segurança: Fecha sozinho se travar por 15s
+    clearTimeout(loadingSafetyTimer);
+    loadingSafetyTimer = setTimeout(() => {
+        if(loader && loader.style.display === 'flex') hideGlobalLoader();
+    }, 15000);
+}
+
+function hideGlobalLoader() {
+    const loader = document.getElementById('globalLoader');
+    if (loader) loader.style.display = 'none';
+    clearTimeout(loadingSafetyTimer);
+}
+
+// ============================================================================
+// PIPELINE DE FILTROS (CORRIGIDO)
+// ============================================================================
+function applyPipeline(showLoader = true) {
+    // Mostra o loading APENAS se showLoader for true
+    if (showLoader) {
+        const loader = document.getElementById('globalLoader');
+        if(!loader || loader.style.display === 'none') {
+            showGlobalLoader('Atualizando visualização...');
+        }
+    }
+
+    setTimeout(() => {
+        try {
+            let result = [...state.allDrivers];
+
+            // --- FILTRO DE DATA ---
+            const start = document.getElementById('dateStart')?.value;
+            const end = document.getElementById('dateEnd')?.value;
+            if (start || end) {
+                result = result.filter(d => {
+                    if (!d.dataSaidaIso) return false;
+                    if (start && d.dataSaidaIso < start) return false;
+                    if (end && d.dataSaidaIso > end) return false;
+                    return true;
+                });
+            }
+
+      // --- FILTRO DE BUSCA ---
+            if (state.search && state.search.trim() !== '') {
+                const termos = state.search
+                    .toLowerCase()
+                    .split(';')
+                    .map(t => t.trim())
+                    .filter(Boolean); // remove vazios
+
+                result = result.filter(d => {
+                    const baseText = (
+                        (d.motorista || '') + ' ' +
+                        (d.placa || '') + ' ' +
+                        (d.veiculo || '') + ' ' +
+                        (d.plano || '') + ' ' +
+                        (d.unidade || '') + ' ' +
+                        (d.tel || '')
+                    ).toLowerCase();
+
+                    const nfeText = Array.isArray(d.detalhes)
+                        ? d.detalhes.map(s => String(s?.nfe || '')).join(' ').toLowerCase()
+                        : '';
+
+                    // OR lógico: algum termo precisa bater
+                    return termos.some(termo =>
+                        baseText.includes(termo) || nfeText.includes(termo)
+                    );
+                });
+            }
+
+            // --- ATUALIZA OS KPIs ---
+            updateKPIs(result); 
+
+            // --- FILTRO DE STATUS (ÚNICO!) ---
+            if (state.filters.status !== 'ALL') {
+                result = result.filter(d => {
+                    const statusNorm = (d.status || '').toUpperCase();
+                    
+                    switch(state.filters.status) {
+                        case 'EM_ROTA':
+                            return statusNorm === 'EM_ROTA';
+                        case 'CRITICO':
+                            return statusNorm === 'CRITICO' || getDriverDelay(d) > 30;
+                        case 'RESSALVA':
+                            return statusNorm === 'RESSALVA';
+                        case 'FINALIZADO':
+                            return statusNorm === 'FINALIZADO';
+                        default:
+                            return true;
+                    }
+                });
+            }
+
+            // --- FILTRO DE UNIDADE / VEÍCULO ---
+            if (state.filters.unidade.size > 0) {
+                result = result.filter(d => state.filters.unidade.has(d.unidade));
+            }
+            if (state.filters.veiculo.size > 0) {
+                result = result.filter(d => state.filters.veiculo.has(d.veiculo));
+            }
+
+            // --- ORDENAÇÃO ---
+            if (state.sort.key) {
+                const k = state.sort.key;
+                const asc = state.sort.asc;
+                result.sort((a, b) => {
+                    let valA = a[k] || "", valB = b[k] || "";
+                    if (k === 'valorTotal' || k === 'progresso' || k === 'peso') { 
+                        valA = parseFloat(valA) || 0; 
+                        valB = parseFloat(valB) || 0; 
+                    } else {
+                        valA = String(valA).toLowerCase(); 
+                        valB = String(valB).toLowerCase();
+                    }
+                    if (valA < valB) return asc ? -1 : 1;
+                    if (valA > valB) return asc ? 1 : -1;
+                    return 0;
+                });
+            }
+
+            // --- DESENHA NA TELA ---
+            if (state.viewMode === 'grid') renderGrid(result);
+            else renderTable(result);
+
+        } catch (e) {
+            console.error("Erro no Pipeline:", e);
+        } finally {
+            hideGlobalLoader();
+        }
+    }, 10);
+}
+
+// ============================================================================
+// CONTROLES DE FILTRO
+// ============================================================================
+let isSearching = false;
+function onSearchInput() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        if (isSearching) return;
+        isSearching = true;
+        state.search = document.getElementById('searchInput').value.toLowerCase();
+        applyPipeline(false); // Sem loader na busca
+        isSearching = false;
+    }, 250);
+}
+
+function setQuickFilter(status, btn) {
+    state.filters.status = status;
+
+    // Atualiza visualmente os botões
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+
+    if (btn) {
+        btn.classList.add('active');
+    } else {
+        const mapText = {
+            'ALL': 'TODOS',
+            'EM_ROTA': 'EM ROTA',
+            'CRITICO': 'CRÍTICOS',
+            'RESSALVA': 'RESSALVAS',
+            'FINALIZADO': 'FINALIZADOS'
+        };
+        
+        const targetText = mapText[status] || status;
+        const buttons = Array.from(document.querySelectorAll('.filter-btn'));
+        const match = buttons.find(b => b.innerText.toUpperCase().includes(targetText));
+        if (match) match.classList.add('active');
+    }
+
+    applyPipeline();
+}
+
+function sortPipeline(key) {
+    if (state.sort.key === key) state.sort.asc = !state.sort.asc;
+    else { state.sort.key = key; state.sort.asc = true; }
+    
+    document.querySelectorAll('.data-table th').forEach(th => th.classList.remove('sorted-asc', 'sorted-desc'));
+    const th = document.querySelector(`th[onclick="sortPipeline('${key}')"]`);
+    if(th) th.classList.add(state.sort.asc ? 'sorted-asc' : 'sorted-desc');
+    
+    applyPipeline();
+}
+
+function clickKpi(status) {
+    setQuickFilter(status);
+}
+
+function setView(mode) {
+    state.viewMode = mode;
+    document.getElementById('btnGrid')?.classList.toggle('active', mode === 'grid');
+    document.getElementById('btnTable')?.classList.toggle('active', mode === 'table');
+    document.getElementById('grid').style.display = mode === 'grid' ? 'grid' : 'none';
+    document.getElementById('tableView').style.display = mode === 'table' ? 'block' : 'none';
+    applyPipeline();
+}
+
+// ============================================================================
+// DROPDOWN FILTERS
+// ============================================================================
+function buildFilterOptions(field, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    const uniqueValues = [...new Set(state.allDrivers.map(d => d[field]).filter(v => v))].sort();
+    
+    container.innerHTML = `<div class="dropdown-header">Filtrar por ${field}</div>`;
+    
+    uniqueValues.forEach(val => {
+        const div = document.createElement('div');
+        div.className = 'dropdown-item';
+        div.onclick = (e) => toggleFilterItem(e, field, val);
+        div.innerHTML = `<div class="checkbox-custom"></div><span>${val}</span>`;
+        container.appendChild(div);
+    });
+}
+
+function toggleFilterItem(e, field, val) {
+    e.stopPropagation();
+    const item = e.currentTarget;
+    item.classList.toggle('selected');
+    
+    if (state.filters[field].has(val)) state.filters[field].delete(val);
+    else state.filters[field].add(val);
+    
+    const btn = document.querySelector(`button[onclick="toggleDropdown('dd-${field}')"]`);
+    if (btn) {
+        if (state.filters[field].size > 0) btn.classList.add('active');
+        else btn.classList.remove('active');
+    }
+    
+    applyPipeline();
+}
+
+function toggleDropdown(id) {
+    document.querySelectorAll('.dropdown-content').forEach(c => {
+        if(c.id !== id.replace('dd-', 'list-')) c.classList.remove('show');
+    });
+    document.getElementById(id.replace('dd-', 'list-'))?.classList.toggle('show');
+}
+
+// Fecha ao clicar fora
+window.onclick = function(event) {
+    if (!event.target.matches('.dropdown-btn') && !event.target.matches('.dropdown-btn *')) {
+        document.querySelectorAll('.dropdown-content').forEach(c => c.classList.remove('show'));
+    }
+}
+
+// ============================================================================
+// RENDER GRID
+// ============================================================================
+function renderGrid(list) {
+    const grid = document.getElementById('grid');
+    if (!grid) return;
+    
+    if (list.length === 0) {
+        grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 80px 0; color: var(--text-muted);"><span class="material-icons-round" style="font-size: 4rem; opacity: 0.3; margin-bottom: 10px;">search_off</span><h3>Nenhum veículo encontrado</h3><p>Tente ajustar os filtros ou a busca.</p></div>`;
+        return;
+    }
+
+    // LIMPA O GRID ANTES DE RENDERIZAR
+    grid.innerHTML = '';
+
+    list.forEach(d => {
+        let safeId = String(d.id).trim();
+        let liveStatus = buildLiveStatus(d, 'card');
+        let badgeClass = getBadgeClass(d.statusClass);
+        let barColor = getBarColor(d.statusClass);
+        let telDisplay = d.tel || 'S/ Tel';
+
+        // Lógica de alerta do ClickUp
+        let clickupAlertHtml = '';
+        if ((d.statusClass === 'success' || d.statusClass === 'warning')) {
+            const statusFechados = ['concluido', 'concluído', 'fechado', 'done', 'complete', 'finalizado', 'cancelado', 'finalizada'];
+            const stClickup = (d.statusClickup || '').toLowerCase();
+            
+            if (!statusFechados.includes(stClickup)) {
+                if (!isSuppressed(safeId)) {
+                    clickupAlertHtml = `
+                    <div class="blink-finish">
+                        <span class="material-icons-round" style="font-size:14px;">notification_important</span>
+                        Finalizar ClickUp
+                    </div>`;
+                }
+            }
+        }
+
+        let html = `
+        <div class="card-driver" onclick="openModal('${safeId}')">
+            <div class="card-header">
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <div class="avatar">${d.motorista.substring(0,2).toUpperCase()}</div>
+                    <div class="info">
+                        <h3>${d.motorista}</h3>
+                        <div class="info-sub">
+                            <span><span class="material-icons-round icon-small">local_shipping</span> ${d.veiculo} • ${d.placa}</span>
+                            <span><span class="material-icons-round icon-small">business</span> ${d.unidade || 'N/A'}</span>
+                            <span class="phone-row">
+                                <span class="material-icons-round icon-small">call</span> ${telDisplay}
+                                <button class="btn-copy-small" onclick="copyToClipboard(event, '${telDisplay}')" title="Copiar"><span class="material-icons-round" style="font-size:12px;">content_copy</span></button>
+                            </span>
+                            <span><span class="material-icons-round icon-small">map</span> ${d.plano}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="status-container">
+                    <span class="status-badge ${badgeClass}">${d.statusLabel}</span>
+                    <div class="timeline-badge"><div class="timeline-dot"></div> ${d.dataSaida || '--/--'}</div>
+                </div>
+            </div>
+            ${liveStatus}
+            
+            <div style="text-align:center;">${clickupAlertHtml}</div>
+
+            <div style="margin-top:auto;">
+                <div class="stats-row" style="margin-bottom:6px;"><span>Progresso</span><span>${d.progresso}%</span></div>
+                <div class="progress-bar"><div class="progress-fill" style="width: ${d.progresso}%; background: ${barColor};"></div></div>
+                
+                <div class="stats-row" style="margin-top: 8px;">
+                    <span>${d.entregas} Entregas • ${d.peso} kg</span>
+                    <span style="display:flex; align-items:center; gap:4px; font-weight:600; color:var(--text-main);">
+                        <span class="material-icons-round" style="font-size:14px; color:var(--primary);">schedule</span> 
+                        ${d.tempoRota || '--'}
+                    </span>
+                </div>
+            </div>
+            <div class="click-hint">Clique para ver detalhes</div>
+        </div>`;
+        grid.innerHTML += html;
+    });
+}
+
+// ============================================================================
+// RENDER TABLE
+// ============================================================================
+function renderTable(list) {
+    const tbody = document.getElementById('tableBody');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:var(--text-muted);">Nenhum dado encontrado</td></tr>`;
+        return;
+    }
+
+    list.forEach(d => {
+        let safeId = String(d.id).trim();
+        let badgeClass = getBadgeClass(d.statusClass);
+        let barColor = getBarColor(d.statusClass);
+        let statusColor = getStatusColor(d.statusClass);
+        let valFmt = d.valorTotal ? d.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+        
+        let telDisplay = d.tel || '--';
+        let btnCopyHtml = '';
+        if (d.tel && d.tel.length > 5) {
+            btnCopyHtml = `
+            <button class="btn-copy-icon" onclick="copyToClipboard(event, '${d.tel}')" title="Copiar Telefone">
+                <span class="material-icons-round" style="font-size:14px;">content_copy</span>
+            </button>`;
+        }
+
+        let clickupIcon = '';
+        if ((d.statusClass === 'success' || d.statusClass === 'warning')) {
+            const statusFechados = ['concluido', 'concluído', 'fechado', 'done', 'finalizada', 'finalizado'];
+            const stClickup = (d.statusClickup || '').toLowerCase();
+            if (!statusFechados.includes(stClickup) && !isSuppressed(safeId)) {
+                clickupIcon = `<span class="material-icons-round blink-icon-table" title="Precisa Finalizar no ClickUp">notification_important</span>`;
+            }
+        }
+
+        let html = `
+        <tr onclick="openModal('${safeId}')" style="border-left: 3px solid ${statusColor}; cursor: pointer; transition: background 0.1s;">
+            <td style="white-space: nowrap; width: 1%;">
+                <div style="display:flex; align-items:center; gap: 8px;">
+                    <span class="status-badge ${badgeClass}">${d.statusLabel}</span>
+                    ${clickupIcon}
+                </div>
+            </td>
+            <td>
+                <div style="display:flex; flex-direction:column;">
+                    <span class="tbl-motorista">${d.motorista}</span>
+                    <div class="tbl-sub-info">
+                        <span class="material-icons-round" style="font-size:12px; opacity:0.7;">call</span>
+                        <span>${telDisplay}</span>
+                        ${btnCopyHtml}
+                    </div>
+                </div>
+            </td>
+            <td>
+                <div style="display:flex; flex-direction:column;">
+                    <span style="font-size:0.85rem; font-weight:500;">${d.veiculo}</span>
+                    <span style="font-size:0.75rem; color:var(--text-muted);">${d.placa}</span>
+                </div>
+            </td>
+            <td><span class="badge-unit">${d.unidade || '-'}</span></td>
+            <td style="font-size:0.8rem; font-family:'Outfit', monospace; color:var(--text-muted);">${d.plano}</td>
+            <td style="white-space: nowrap; font-size:0.85rem;">${d.dataSaida || '-'}</td>
+            <td style="min-width: 120px;">
+                <div style="display:flex; flex-direction:column; gap:3px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.75rem;">
+                        <span style="font-weight:700;">${d.progresso}%</span>
+                        <span style="color:var(--text-muted);">${d.tempoRota || '--'}</span>
+                    </div>
+                    <div style="height:4px; background:var(--input-bg); border-radius:2px; overflow:hidden; width:100%;">
+                        <div style="width: ${d.progresso}%; background: ${barColor}; height:100%;"></div>
+                    </div>
+                </div>
+            </td>
+            <td style="text-align:center; font-size:0.85rem;">${d.entregas}</td>
+            <td style="white-space: nowrap; font-size:0.85rem;">${d.peso} kg</td>
+            <td style="font-weight:600; color:var(--text-main); font-size:0.85rem;">${valFmt}</td>
+        </tr>`;
+        tbody.innerHTML += html;
+    });
+}
+
+// ============================================================================
+// HELPERS VISUAIS
+// ============================================================================
+function getBadgeClass(s) { 
+    if(s=='success') return 'badge-success'; 
+    if(s=='warning') return 'badge-warning'; 
+    if(s=='danger') return 'badge-danger'; 
+    return 'badge-info'; 
+}
+
+function getBarColor(s) { 
+    if(s=='success') return 'var(--accent)'; 
+    if(s=='warning') return 'var(--warning)'; 
+    if(s=='danger') return 'var(--danger)'; 
+    return '#3B82F6'; 
+}
+
+function getStatusColor(s) { 
+    if(s=='success') return 'var(--accent)'; 
+    if(s=='warning') return 'var(--warning)'; 
+    if(s=='danger') return 'var(--danger)'; 
+    return 'var(--primary)'; 
+}
+
+function getDriverDelay(driver) {
+    // Se não houver detalhes de paradas, não há como calcular
+    if (!driver.detalhes || driver.detalhes.length === 0) return 0;
+    
+    // Procura a primeira parada pendente que tenha um horário de chegada registrado
+    let currentStop = driver.detalhes.find(s => !s.isDone && !s.isDev && s.hora && s.hora !== '--:--');
+    
+    if (!currentStop || !currentStop.hora) return 0;
+    
+    // Calcula a diferença entre agora e o horário que ele chegou no cliente
+    let now = new Date();
+    let [hrs, mins] = currentStop.hora.split(':').map(Number);
+    let arrivalTime = new Date();
+    arrivalTime.setHours(hrs, mins, 0, 0);
+    
+    return Math.floor((now - arrivalTime) / 60000);
+}
+
+function buildLiveStatus(d, mode) {
+    let diffMins = getDriverDelay(d);
+    if (diffMins <= 0) return '';
+    let currentStop = d.detalhes.find(s => !s.isDone && !s.isDev && s.hora && s.hora !== '--:--');
+    if (!currentStop) return '';
+    let dangerClass = diffMins > 30 ? 'danger' : '';
+    if (mode === 'card') {
+        return `<div class="live-status ${dangerClass}"><div class="live-dot"></div><div><strong>No Cliente:</strong> ${currentStop.cliente.substring(0, 20)}<br><span style="font-weight:600">Tempo parado: ${diffMins} min</span></div></div>`;
+    }
+    return `<span class="tbl-live-info ${dangerClass}">📍 ${currentStop.cliente.substring(0, 15)}... (${diffMins} min)</span>`;
+}
+
+function updateKPIs(data) {
+    let c = { total: 0, emRota: 0, critico: 0, final: 0 };
+    data.forEach(d => {
+        c.total++;
+        if(d.status === 'EM_ROTA') c.emRota++;
+        if(d.status === 'CRITICO' || getDriverDelay(d) > 30) c.critico++;
+        if(d.status === 'FINALIZADO' || d.status === 'RESSALVA') c.final++;
+    });
+    animateValue("kpiTotal", c.total);
+    animateValue("kpiRota", c.emRota);
+    animateValue("kpiCrit", c.critico);
+    animateValue("kpiFinal", c.final);
+}
+
+function animateValue(id, end) {
+    const obj = document.getElementById(id);
+    if (!obj) return;
+    obj.innerText = end;
+}
+
+function populateFormSelects(drivers) {
+    const motoristaSelect = document.getElementById('formMotorista');
+    const rotaSelect = document.getElementById('formRota');
+    if(!motoristaSelect || !rotaSelect) return;
+    motoristaSelect.length = 1;
+    rotaSelect.length = 1;
+    const uniqueDrivers = [...new Set(drivers.map(d => d.motorista))].sort();
+    const uniqueRotas = [...new Set(drivers.map(d => d.plano))].sort();
+    uniqueDrivers.forEach(m => { 
+        const opt = document.createElement('option'); 
+        opt.value = m; 
+        opt.textContent = m; 
+        motoristaSelect.appendChild(opt); 
+    });
+    uniqueRotas.forEach(r => { 
+        const opt = document.createElement('option'); 
+        opt.value = r; 
+        opt.textContent = r; 
+        rotaSelect.appendChild(opt); 
+    });
+}
+
+function switchSection(sectionId, menuItem) {
+    document.getElementById('dashboard-section').style.display = 'none';
+    document.getElementById('occurrence-section').style.display = 'none';
+    document.getElementById(sectionId + '-section').style.display = 'block';
+    document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+    if(menuItem) menuItem.classList.add('active');
+}
+
+// ============================================================================
+// COPIAR PARA CLIPBOARD
+// ============================================================================
+window.copyToClipboard = function(event, text) {
+    if(event) event.stopPropagation();
+    if (!text || text === '--' || text === 'S/ Tel') return;
+
+    navigator.clipboard.writeText(text).then(() => {
+        showToast();
+    }).catch(err => {
+        console.error('Erro ao copiar', err);
+    });
+}
+
+function showToast() {
+    const x = document.getElementById("toastNotification");
+    if (x) {
+        x.className = "toast-box show";
+        setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
+    }
+}
+
+window.toggleStopDetails = function(id) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+    }
+}
+
+// ============================================================================
+// MODAL E AÇÕES
+// ============================================================================
+window.openModal = function(id) {
+    const e = window.event;
+    if (e) e.stopPropagation();
+
+    selectedDriverId = String(id).trim(); 
+    
+    const menu = document.getElementById('quickActionMenu');
+    if (!menu) return;
+    
+    menu.style.display = 'block';
+    
+    let clickX = e.clientX;
+    let clickY = e.clientY;
+    const menuWidth = 240;
+    const menuHeight = 280;
+
+    if (clickX + menuWidth > window.innerWidth) {
+        menu.style.left = (clickX - menuWidth) + 'px';
+    } else {
+        menu.style.left = clickX + 'px';
+    }
+
+    if (clickY + menuHeight > window.innerHeight) {
+        menu.style.top = (clickY - menuHeight) + 'px';
+    } else {
+        menu.style.top = clickY + 'px';
+    }
+
+    setTimeout(() => {
+        const closeMenu = () => {
+            menu.style.display = 'none';
+            document.removeEventListener('click', closeMenu);
+        };
+        document.addEventListener('click', closeMenu);
+    }, 50);
+}
+
+function actionClickup() {
+    const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
+    if(driver && driver.clickupId) {
+        window.open(`https://app.clickup.com/t/${driver.clickupId}`, '_blank');
+    } else {
+        alert("⚠️ ID do ClickUp não encontrado para esta rota.");
+    }
+}
+
+function actionOcorrencia() {
+    const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
+    if (driver) {
+        switchSection('occurrence', document.querySelectorAll('.menu-item')[1]);
+        
+        setTimeout(() => {
+            const selMot = document.getElementById('formMotorista');
+            const selRota = document.getElementById('formRota');
+            if(selMot) selMot.value = driver.motorista;
+            if(selRota) selRota.value = driver.plano;
+        }, 100);
+    }
+}
+
+function actionAdiantamento() {
+    const valor = prompt("💰 Qual o valor do adiantamento (R$)?");
+    if(valor) {
+        alert(`Solicitação de R$ ${valor} enviada para o financeiro!`);
+    }
+}
+
+function actionFinalizar() {
+    const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
+    
+    if (!driver) { alert("Erro: Motorista não encontrado."); return; }
+    if (!driver.clickupId) { alert("Erro: Esta rota não tem ID do ClickUp vinculado."); return; }
+
+    document.getElementById('quickActionMenu').style.display = 'none';
+
+    const cardAlert = document.querySelector(`div[onclick="openModal('${selectedDriverId}')"] .blink-finish`);
+    const tableAlert = document.querySelector(`tr[onclick="openModal('${selectedDriverId}')"] .material-icons-round[title="Precisa Finalizar no ClickUp"]`);
+
+    if (cardAlert) {
+        cardAlert.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+        cardAlert.style.opacity = "0";
+        cardAlert.style.transform = "scale(0.0)";
+        setTimeout(() => { if(cardAlert) cardAlert.style.display = 'none'; }, 550);
+    }
+    if (tableAlert) {
+        tableAlert.style.transition = "opacity 0.5s ease";
+        tableAlert.style.opacity = "0";
+    }
+
+    const overlay = document.getElementById('clickupSuccessOverlay');
+    if (overlay) overlay.classList.add('active');
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if (res.success) {
+                console.log("✅ Sucesso!");
+                driver.statusClickup = "Finalizada"; 
+                saveToCache(state.allDrivers);
+                addSuppression(driver.id);
+                setTimeout(() => { applyPipeline(); }, 2500); 
+            } else {
+                alert("Erro ao finalizar: " + res.msg);
+                if (cardAlert) { 
+                    cardAlert.style.display = ''; 
+                    cardAlert.style.opacity = "1"; 
+                    cardAlert.style.transform = "scale(1)";
+                }
+                applyPipeline();
+            }
+        })
+        .withFailureHandler((err) => { 
+            alert("Erro de conexão: " + err);
+            if (cardAlert) { cardAlert.style.display = ''; cardAlert.style.opacity = "1"; }
+        })
+        .finalizarTarefaBackend(driver.clickupId, driver.id);
+
+    setTimeout(() => { if(overlay) overlay.classList.remove('active'); }, 3000);
+}
+
+function actionDetalhes() {
+    if (selectedDriverId) {
+        renderDetailedModal(selectedDriverId);
+    }
+}
+
+// ============================================================================
+// MODAL DETALHADO
+// ============================================================================
+window.renderDetailedModal = function(id) {
+    let searchId = String(id).trim();
+    const driver = state.allDrivers.find(d => String(d.id).trim() === searchId);
+    
+    if (!driver) return;
+
+    document.getElementById('mTitle').innerText = driver.motorista;
+    document.getElementById('mSub').innerText = `${driver.veiculo} (${driver.placa}) - Plano: ${driver.plano}`;
+    
+    const btnClickup = document.getElementById('btnClickup');
+    if (driver.clickupId) { 
+        btnClickup.href = `https://app.clickup.com/t/${driver.clickupId}`; 
+        btnClickup.style.display = 'inline-flex'; 
+    } else { 
+        btnClickup.style.display = 'none'; 
+    }
+
+    const content = document.getElementById('mContent');
+    let htmlBuffer = '';
+
+    if (!driver.detalhes || driver.detalhes.length === 0) {
+        htmlBuffer = '<div style="padding:30px; text-align:center; color:var(--text-muted)">Sem dados de rota.</div>';
+    } else {
+        const sortedStops = driver.detalhes.sort((a, b) => {
+            const getMinutos = (timeStr) => {
+                if (!timeStr || timeStr === '--:--' || !timeStr.includes(':')) return 99999;
+                const [h, m] = timeStr.split(':').map(Number);
+                return (h * 60) + m;
+            };
+            const timeA = getMinutos(a.hora);
+            const timeB = getMinutos(b.hora);
+            if (timeA !== timeB) return timeA - timeB;
+            return (a.seq || 0) - (b.seq || 0);
+        });
+
+        const agora = new Date(); 
+
+        sortedStops.forEach((s, index) => {
+            let icon = 'radio_button_unchecked'; let cls = '';
+            if (s.isDone) { icon = 'check_circle'; cls = 'done'; }
+            else if (s.isDev) { icon = 'cancel'; cls = 'dev'; }
+
+            let horarioTexto = "--:--";
+            if (s.hora && s.hora !== '--:--') {
+                if (s.saida && s.saida !== '--:--') horarioTexto = `${s.hora} <span style="font-size:10px; color:var(--text-muted)">➔</span> ${s.saida}`;
+                else horarioTexto = `${s.hora} <span style="font-size:10px; color:var(--text-muted)">➔</span> ...`;
+            }
+
+            let badgeTexto = "Previsto";
+            let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);"; 
+            
+            const estaFinalizado = s.isDone || (s.permanencia !== null && s.permanencia !== undefined);
+
+            if (s.hora && s.hora.includes(':')) {
+                if (estaFinalizado) {
+                    if (s.permanencia !== null && s.permanencia !== undefined) {
+                        let hh = Math.floor(s.permanencia / 60);
+                        let mm = s.permanencia % 60;
+                        
+                        if (hh > 0) {
+                            badgeTexto = `${hh}h ${String(mm).padStart(2, '0')}m`;
+                        } else {
+                            badgeTexto = `${mm} min`;
+                        }
+                        
+                        if (s.permanencia > 60) {
+                            badgeStyle = "background: #EF4444; color: white; font-weight: 600; box-shadow: 0 2px 5px rgba(239,68,68,0.3);";
+                        } else {
+                            badgeStyle = "background: rgba(59, 130, 246, 0.1); color: var(--primary); font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.2);";
+                        }
+                    } else {
+                        badgeTexto = "Finalizado";
+                        badgeStyle = "background: rgba(59, 130, 246, 0.1); color: var(--primary); font-weight: 600;";
+                    }
+                } else if (!s.isDev) {
+                    try {
+                        const [h, m] = s.hora.split(':').map(Number);
+                        const chegada = new Date(); chegada.setHours(h, m, 0, 0);
+                        const diffMins = Math.floor((agora - chegada) / 60000);
+                        
+                        if (diffMins >= 0) {
+                            const hh = Math.floor(diffMins / 60); 
+                            const mm = diffMins % 60;
+                            
+                            let tempoRealStr = "";
+                            if (hh > 0) {
+                                tempoRealStr = `${hh}h ${String(mm).padStart(2, '0')}m`;
+                            } else {
+                                tempoRealStr = `${mm} min`;
+                            }
+
+                            badgeTexto = `No Local: ${tempoRealStr}`;
+                            
+                            if (diffMins > 30) {
+                                badgeStyle = "background: #EF4444; color: white; font-weight: 600; box-shadow: 0 2px 5px rgba(239,68,68,0.3); animation: pulse 2s infinite;";
+                            } else {
+                                badgeStyle = "background: #10B981; color: white; font-weight: 600;";
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            let valorNum = parseFloat(String(s.valor).replace('R$', '').replace('.', '').replace(',', '.')) || 0;
+            let hasValue = valorNum > 0;
+            let hasNfe = (s.nfe && s.nfe !== "" && s.nfe !== "---");
+            let hiddenContent = '';
+            let detailsId = `stop-details-${index}`;
+
+            if (hasValue || hasNfe) {
+                let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+                let nfeStr = hasNfe ? s.nfe : '-';
+                hiddenContent = `<div id="${detailsId}" class="stop-extended-details" style="display:none;"><div class="det-item"><span class="det-label">Valor:</span> <span class="det-val">${valStr}</span></div><div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div></div>`;
+            }
+            let clientNameHtml = (hiddenContent !== '') ? `<span class="client-name-link" onclick="toggleStopDetails('${detailsId}')">${s.cliente} <span style="font-size:10px">▼</span></span>` : s.cliente;
+
+            htmlBuffer += `
+            <div class="stop-row" style="flex-wrap: wrap;">
+                <div style="display:flex; width:100%; align-items:center; gap:12px;">
+                    <span class="material-icons-round stop-icon ${cls}">${icon}</span>
+                    <div class="stop-info" style="flex:1">
+                        <div style="font-weight: 600; font-size: 0.9rem;">${clientNameHtml}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Seq: ${s.seq} • ${s.status}</div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; min-width: 90px;">
+                        <span style="font-family:'Outfit', monospace; font-size:0.8rem; color:var(--text-main); font-weight:600;">${horarioTexto}</span>
+                        <span style="font-family:'Outfit', sans-serif; font-size:0.75rem; padding:2px 8px; border-radius:6px; ${badgeStyle} text-align:center; white-space:nowrap;">${badgeTexto}</span>
+                    </div>
+                </div>
+                <div style="width:100%; padding-left: 36px;">${hiddenContent}</div>
+            </div>`;
+        });
+    }
+    content.innerHTML = htmlBuffer;
+    document.getElementById('modal').classList.add('active');
+};
+
+window.closeModal = function() { 
+    document.getElementById('modal').classList.remove('active'); 
+}
+
+// ============================================================================
+// FORMULÁRIO DE OCORRÊNCIA
+// ============================================================================
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('incidentForm');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true; 
+            google.script.run.withSuccessHandler(function() {
+                document.getElementById('successOverlay').classList.add('active');
+                setTimeout(() => { 
+                    document.getElementById('incidentForm').reset(); 
+                    document.getElementById('successOverlay').classList.remove('active'); 
+                    btn.disabled = false; 
+                }, 3000);
+            }).salvarOcorrencia(this);
+        });
+    }
+});
+</script>

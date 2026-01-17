@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THX LOG | Centro de Comando</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+    <link rel="preload" href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" as="style">
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+
+    <?!= include('CSS-Estilos'); ?>
+</head>
+
+
+<body>
+
+  
+
+    <div id="loader">
+        <canvas id="gameCanvas" width="600" height="200"></canvas>
+        <p class="game-msg" id="loadingText">CARREGANDO SISTEMA... (Pressione ESPAÇO ou Toque para Pular)</p>
+        <div class="progress-container"><div class="progress-bar-load"></div></div>
+    </div>
+
+    <div class="success-overlay" id="successOverlay">
+        <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52"><circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/><path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/></svg>
+        <div class="success-text"><h3>Registrado!</h3><p style="color: var(--text-muted);">Dados enviados.</p></div>
+    </div>
+
+    <div class="modal-overlay" id="modal" onclick="if(event.target === this) closeModal()">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div><h3 id="mTitle">Detalhes</h3><p id="mSub" style="font-size: 0.9rem; color: var(--text-muted);">...</p></div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <a id="btnClickup" class="btn-clickup" href="#" target="_blank" style="display:none;">
+                        <img src="https://clickup.com/landing/images/logo-clickup_color.svg" width="16" style="filter: brightness(0) invert(1);"> Abrir ClickUp
+                    </a>
+                    <button onclick="closeModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer;"><span class="material-icons-round" style="font-size: 1.5rem;">close</span></button>
+                </div>
+            </div>
+            <div class="modal-content" id="mContent"></div>
+        </div>
+    </div>
+
+    <button class="theme-toggle" id="themeToggle"><span class="material-icons-round" id="themeIcon">dark_mode</span></button>
+
+    <nav class="sidebar">
+        <div class="brand-container">
+            <img src="https://drive.google.com/thumbnail?id=1Ft7TTx-y4bLisPyCnBeXZmh9gPgLFZ1T&sz=w500" class="brand-logo">
+            <div class="brand-separator"></div><p class="brand-tagline">FOCO NO FOCO DO CLIENTE</p>
+        </div>
+        <ul class="menu-list">
+            <li class="menu-item active" onclick="switchSection('dashboard', this)"><span class="material-icons-round menu-icon">dashboard</span> Visão Geral</li>
+            <li class="menu-item" onclick="switchSection('occurrence', this)"><span class="material-icons-round menu-icon">build_circle</span> Ocorrência</li>
+            <li class="menu-item" onclick="setFilter('FINALIZADO', this); switchSection('dashboard', document.querySelector('.menu-item:first-child'))"><span class="material-icons-round menu-icon">task_alt</span> Finalizados</li>
+        </ul>
+    </nav>
+
+    <div class="main-content">
+        <div id="dashboard-section">
+            <div class="header-bar">
+                <div class="page-title"><h1>Visão Operacional</h1><p>Monitoramento Logístico em Tempo Real</p></div>
+             <div class="header-actions">
+                    <div class="search-wrapper">
+                        <span class="material-icons-round search-icon">search</span>
+                        <input type="text" id="searchInput" placeholder="Buscar..." onkeyup="onSearchInput()">
+                    </div>
+                    <div class="date-range-container">
+                        <span class="material-icons-round" style="color:var(--primary);">calendar_today</span>
+                <input type="date" id="dateStart" class="date-input-clean">
+                <span class="date-separator">ATÉ</span>
+                <input type="date" id="dateEnd" class="date-input-clean">
+                    </div>
+                    <button class="btn-refresh" id="refreshBtn" onclick="loadData('force')"><span class="material-icons-round" id="refreshIcon">sync</span></button>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card blue" onclick="clickKpi('ALL')"><span class="material-icons-round kpi-icon-bg">directions_car</span><div class="kpi-val" id="kpiTotal">0</div><div class="kpi-lbl">Total Frota</div></div>
+                <div class="kpi-card info" onclick="clickKpi('EM_ROTA')"><span class="material-icons-round kpi-icon-bg">local_shipping</span><div class="kpi-val" id="kpiRota" style="color: #3B82F6;">0</div><div class="kpi-lbl">Em Trânsito</div></div>
+                <div class="kpi-card danger" onclick="clickKpi('CRITICO')"><span class="material-icons-round kpi-icon-bg">warning</span><div class="kpi-val" id="kpiCrit" style="color: var(--danger);">0</div><div class="kpi-lbl">Atrasados / Críticos</div></div>
+                <div class="kpi-card success" onclick="clickKpi('FINALIZADO')"><span class="material-icons-round kpi-icon-bg">check_circle</span><div class="kpi-val" id="kpiFinal" style="color: var(--accent);">0</div><div class="kpi-lbl">Finalizados</div></div>
+            </div>
+
+            <div class="filters-advanced-row">
+                <div class="custom-dropdown" id="dd-unidade">
+                    <button class="dropdown-btn" onclick="toggleDropdown('dd-unidade')">
+                        <span class="material-icons-round" style="font-size:18px">business</span> Unidade
+                        <span class="material-icons-round" style="font-size:16px">expand_more</span>
+                    </button>
+                    <div class="dropdown-content" id="list-unidade"></div>
+                </div>
+
+                <div class="custom-dropdown" id="dd-veiculo">
+                    <button class="dropdown-btn" onclick="toggleDropdown('dd-veiculo')">
+                        <span class="material-icons-round" style="font-size:18px">local_shipping</span> Veículo
+                        <span class="material-icons-round" style="font-size:16px">expand_more</span>
+                    </button>
+                    <div class="dropdown-content" id="list-veiculo"></div>
+                </div>
+            </div>
+
+            <div class="controls-bar">
+               <div class="filters">
+                  <button class="filter-btn active" onclick="setQuickFilter('ALL', this)">TODOS</button>
+                  <button class="filter-btn" onclick="setQuickFilter('EM_ROTA', this)">EM ROTA</button>
+                  <button class="filter-btn" onclick="setQuickFilter('CRITICO', this)">CRÍTICOS</button>
+                  <button class="filter-btn" onclick="setQuickFilter('RESSALVA', this)">RESSALVAS</button>
+                  <button class="filter-btn" onclick="setQuickFilter('FINALIZADO', this)">FINALIZADOS</button>
+            </div>
+                <div class="view-toggles">
+                    <button class="view-btn active" id="btnGrid" onclick="setView('grid')"><span class="material-icons-round">grid_view</span></button>
+                    <button class="view-btn" id="btnTable" onclick="setView('table')"><span class="material-icons-round">table_rows</span></button>
+                </div>
+            </div>
+
+            <div class="grid-drivers" id="grid"></div>
+            <div class="table-container" id="tableView">
+                <table class="data-table">
+                    <tr>
+                            <th onclick="sortPipeline('statusLabel')">Status <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('motorista')">Motorista <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('veiculo')">Veículo <span class="material-icons-round sort-icon">sort</span></th>
+                            
+                            <th onclick="sortPipeline('unidade')">Unidade <span class="material-icons-round sort-icon">sort</span></th>
+                            
+                            <th onclick="sortPipeline('plano')">Plano <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('dataSaida')">Saída <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('progresso')">Progresso <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('entregas')">Entregas <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('peso')">Peso <span class="material-icons-round sort-icon">sort</span></th>
+                            <th onclick="sortPipeline('valorTotal')">Valor Total <span class="material-icons-round sort-icon">sort</span></th>
+                        </tr></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="occurrence-section">
+            <div class="form-container-inner">
+                <div class="form-header"><h2>Nova Ocorrência</h2><p>Preencha os dados abaixo.</p></div>
+                <form id="incidentForm">
+                    <div class="form-grid">
+                        <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">person_pin</span><select name="motorista" id="formMotorista" required><option value="" disabled selected>Selecione o Motorista</option></select></div>
+                        <div class="row-split">
+                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">alt_route</span><select name="rota" id="formRota" required><option value="" disabled selected>Rota / Plano</option></select></div>
+                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">store_mall_directory</span><select name="cliente" required><option value="" disabled selected>Cliente</option><option value="Cliente X">Cliente X</option></select></div>
+                        </div>
+                        <div class="row-split">
+                            <div class="input-wrapper"><span class="material-icons-round input-icon">event_note</span><input type="text" name="dataSaida" placeholder="Data" onfocus="(this.type='date')" onblur="(this.type='text')" required></div>
+                            <div class="input-wrapper"><span class="material-icons-round input-icon">receipt</span><input type="text" name="nfe" placeholder="NF-e" required autocomplete="off"></div>
+                        </div>
+                        <div class="row-split">
+                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">report_problem</span><select name="motivo" required><option value="" disabled selected>Motivo</option><option value="Avaria">Avaria</option><option value="Atraso">Atraso</option><option value="Falta">Falta</option></select></div>
+                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">precision_manufacturing</span><select name="causador" required><option value="" disabled selected>Área</option><option value="Expedicao">Expedição</option><option value="Transporte">Transporte</option></select></div>
+                        </div>
+                        <div class="input-wrapper" style="width: 50%; min-width: 150px;"><span class="material-icons-round input-icon">attach_money</span><input type="number" step="0.01" name="valor" placeholder="Valor (R$)"></div>
+                        <div class="input-wrapper textarea"><span class="material-icons-round input-icon">description</span><textarea name="descricao" placeholder="Descrição..." rows="4" required></textarea></div>
+                        <button type="submit" class="btn-submit" id="submitBtn"><span id="btnText">Enviar Registro</span><span class="material-icons-round" id="btnIcon">send</span><div class="spinner" id="btnSpinner" style="display:none; width: 20px; height: 20px; border-width: 3px;"></div></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+                                        <div id="quickActionMenu" class="quick-menu">
+                          <div class="menu-header">Ações Rápidas</div>
+                          
+                          <button onclick="actionClickup()">
+                              <span class="material-icons-round" style="color:#7b68ee;">open_in_new</span> 
+                              <span>Abrir no ClickUp</span>
+                          </button>
+
+                          <button onclick="actionOcorrencia()">
+                              <span class="material-icons-round" style="color:var(--warning);">report_problem</span> 
+                              <span>Registrar Ocorrência</span>
+                          </button>
+
+                          <button onclick="actionAdiantamento()">
+                              <span class="material-icons-round" style="color:var(--accent);">payments</span> 
+                              <span>Solicitar Adiantamento</span>
+                          </button>
+
+                          <button onclick="actionFinalizar()">
+                              <span class="material-icons-round" style="color:var(--primary);">task_alt</span> 
+                              <span>Finalizar Tarefa</span>
+                          </button>
+
+                          <div class="menu-sep"></div>
+
+                          <button onclick="actionDetalhes()" class="btn-detalhes">
+                              <span class="material-icons-round">visibility</span> 
+                              <span>Ver Detalhes / Rota</span>
+                          </button>
+    </div>
+
+   <div id="clickupSuccessOverlay" class="c-success-overlay">
+    <div class="c-success-box">
+         <div class="icon-container-pop">
+            <div class="c-ripple r1"></div>
+            <div class="c-ripple r2"></div>
+            <div class="c-ripple r3"></div>
+            
+            <span class="material-icons-round c-check-icon">task_alt</span>
+         </div>
+         
+         <h2 class="pop-text-title">Finalizado!</h2>
+         <p class="pop-text-sub">Sincronizado com sucesso no ClickUp.</p>
+    </div>
+</div>
+
+    <?!= include('JS-Game'); ?>
+    <?!= include('JS-Logica'); ?>
+
+    <div id="toastNotification" class="toast-box">
+    <span class="material-icons-round">content_copy</span>
+    <span style="font-weight:600;">Telefone copiado!</span>
+</div>
+
+<div id="globalLoader" class="loader-overlay" style="display: none;">
+    <div class="loader-content">
+        <div class="spinner-border"></div>
+        <h3 id="loaderText">Carregando...</h3>
+    </div>
+</div>
+
+</body>
+
+<script>
+  // ✅ CRIAR ARQUIVO SEPARADO: worker-filter.js
+// Cole no Dashboard.html como script inline ou use Blob
+
+const filterWorkerCode = `
+self.onmessage = function(e) {
+    const { drivers, filters, sort } = e.data;
+    let result = [...drivers];
+    
+    // Filtro de data
+    if (filters.dateStart || filters.dateEnd) {
+        result = result.filter(d => {
+            if (!d.dataSaidaIso) return false;
+            if (filters.dateStart && d.dataSaidaIso < filters.dateStart) return false;
+            if (filters.dateEnd && d.dataSaidaIso > filters.dateEnd) return false;
+            return true;
+        });
+    }
+    
+    // Filtro de status
+    if (filters.status !== 'ALL') {
+        result = result.filter(d => d.status === filters.status);
+    }
+    
+    // Ordenação
+    if (sort.key) {
+        result.sort((a, b) => {
+            let valA = a[sort.key] || "";
+            let valB = b[sort.key] || "";
+            if (sort.key === 'valorTotal' || sort.key === 'progresso') {
+                valA = parseFloat(valA) || 0;
+                valB = parseFloat(valB) || 0;
+            }
+            return sort.asc ? (valA > valB ? 1 : -1) : (valA < valB ? 1 : -1);
+        });
+    }
+    
+    self.postMessage(result);
+};
+`;
+
+// ✅ USO NO JS-Logica.html
+let filterWorker;
+function initWorker() {
+    const blob = new Blob([filterWorkerCode], { type: 'application/javascript' });
+    filterWorker = new Worker(URL.createObjectURL(blob));
+    
+    filterWorker.onmessage = (e) => {
+        const result = e.data;
+        updateKPIs(result);
+        if (state.viewMode === 'grid') renderGrid(result);
+        else renderTable(result);
+        hideGlobalLoader();
+    };
+}
+
+function applyPipelineAsync() {
+    filterWorker.postMessage({
+        drivers: state.allDrivers,
+        filters: {
+            status: state.filters.status,
+            dateStart: DOM.dateStart?.value,
+            dateEnd: DOM.dateEnd?.value
+        },
+        sort: state.sort
+    });
+}
+<script>
+</html>
