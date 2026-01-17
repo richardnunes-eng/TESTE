@@ -1002,6 +1002,47 @@ table td {
     margin: 0 auto;
 }
 
+.loader-overlay.soft {
+    background: transparent;
+    backdrop-filter: none;
+    width: auto;
+    height: auto;
+    top: 16px;
+    right: 16px;
+    left: auto;
+    bottom: auto;
+    padding: 0;
+    pointer-events: none;
+}
+
+.loader-overlay.soft .loader-content {
+    background: var(--bg-card);
+    border: 1px solid var(--input-border);
+    border-radius: 999px;
+    padding: 8px 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-main);
+    box-shadow: var(--shadow-sm);
+}
+
+.loader-overlay.soft .spinner-border {
+    width: 18px;
+    height: 18px;
+    border-width: 3px;
+    margin: 0;
+}
+
+.loader-overlay.soft .loader-content h3 {
+    margin-top: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    color: var(--text-muted);
+    animation: none;
+}
+
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
