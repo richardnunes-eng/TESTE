@@ -527,7 +527,7 @@ function setView(mode) {
 }
 
 let exportInProgress = false;
-function exportXlsx() {
+function exportCsv() {
     if (exportInProgress) return;
     exportInProgress = true;
     const btn = document.getElementById('exportBtn');
@@ -554,7 +554,12 @@ function exportXlsx() {
             if (btn) btn.removeAttribute('disabled');
             alert('Erro ao exportar planilha: ' + err);
         })
-        .exportDashboardXlsx();
+        .exportDashboardCsv();
+}
+
+// Compatibilidade com HTML existente
+function exportXlsx() {
+    return exportCsv();
 }
 
 // ============================================================================

@@ -483,9 +483,9 @@ function getDashboardData(modo) {
 }
 
 // =============================================================================
-// EXPORTAR PLANILHA XLSX FORMATADA
+// EXPORTAR CSV (ZIP COM ROTAS + PARADAS)
 // =============================================================================
-function exportDashboardXlsx() {
+function exportDashboardCsv() {
   try {
     const payload = getDashboardData('check');
     if (!payload || payload.error) {
@@ -607,17 +607,42 @@ function exportDashboardXlsx() {
     paradas.getRange(2, 10, Math.max(paradasRows.length, 1), 1).setNumberFormat("0");
     paradas.getRange(2, 11, Math.max(paradasRows.length, 1), 1).setNumberFormat("R$ #,##0.00");
 
-    const exportBlob = DriveApp.getFileById(ss.getId()).getAs(MimeType.MICROSOFT_EXCEL);
-    exportBlob.setName(reportName + ".xlsx");
-    const exportFile = DriveApp.createFile(exportBlob);
+    const rotasCsv = toCsv([rotasHeaders].concat(rotasRows));
+    const paradasCsv = toCsv([paradasHeaders].concat(paradasRows));
+
+    const rotasBlob = Utilities.newBlob(rotasCsv, MimeType.CSV, "Rotas.csv");
+    const paradasBlob = Utilities.newBlob(paradasCsv, MimeType.CSV, "Paradas.csv");
+    const zipBlob = Utilities.zip([rotasBlob, paradasBlob], reportName + ".zip");
+    const exportFile = DriveApp.createFile(zipBlob);
     DriveApp.getFileById(ss.getId()).setTrashed(true);
 
     const downloadUrl = "https://drive.google.com/uc?export=download&id=" + exportFile.getId();
     return { url: downloadUrl, viewUrl: exportFile.getUrl(), fileId: exportFile.getId() };
   } catch (e) {
-    console.error("Erro ao exportar XLSX: " + e.message);
-    return { error: "Erro ao exportar XLSX: " + e.message };
+    console.error("Erro ao exportar CSV: " + e.message);
+    return { error: "Erro ao exportar CSV: " + e.message };
   }
+}
+
+// Compatibilidade com chamadas antigas
+function exportDashboardXlsx() {
+  return exportDashboardCsv();
+}
+
+// ============================================================================
+// CSV HELPERS
+// ============================================================================
+function toCsv(rows) {
+  return rows.map(row => row.map(csvCell).join(",")).join("\r\n");
+}
+
+function csvCell(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  if (s.includes("\"") || s.includes(",") || s.includes("\n") || s.includes("\r")) {
+    return "\"" + s.replace(/\"/g, "\"\"") + "\"";
+  }
+  return s;
 }
 
 // ============================================================================
