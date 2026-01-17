@@ -653,17 +653,22 @@ function finalizarTarefaBackend(clickupId, rotaId) {
       
       let colIdClickup = -1;
       let colStatus = -1;
+      let colStatusColor = -1;
       
       headers.forEach((h, i) => {
         let t = String(h).toUpperCase().trim();
         if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') colIdClickup = i;
         if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') colStatus = i;
+        if (t === 'STATUS COR' || t === 'STATUS COLOR' || t === 'STATUS CLICKUP COR' || t === 'COR STATUS') colStatusColor = i;
       });
 
       if (colIdClickup !== -1 && colStatus !== -1) {
         for (let i = 1; i < data.length; i++) {
           if (String(data[i][colIdClickup]).trim() === String(clickupId).trim()) {
             ws.getRange(i + 1, colStatus + 1).setValue("Finalizada");
+            if (colStatusColor !== -1) {
+              ws.getRange(i + 1, colStatusColor + 1).setValue(mapClickupStatusColor("Finalizada"));
+            }
             SpreadsheetApp.flush(); 
             break; 
           }
@@ -682,4 +687,71 @@ function finalizarTarefaBackend(clickupId, rotaId) {
     console.error("Erro em finalizarTarefaBackend: " + e.message);
     return { success: false, msg: e.message };
   }
+}
+
+// ============================================================================
+// ATUALIZAR STATUS NO CLICKUP (GENÃ‰RICO)
+// ============================================================================
+function atualizarStatusClickupBackend(clickupId, novoStatus, rotaId) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ws = ss.getSheetByName(SHEET_MAIN);
+
+    if (!clickupId) {
+      return { success: false, msg: "ID do ClickUp nÃ£o informado" };
+    }
+
+    const sucessoApi = enviarStatusParaClickup(clickupId, novoStatus);
+    if (!sucessoApi) {
+      return { success: false, msg: "Erro na API do ClickUp" };
+    }
+
+    let statusColor = mapClickupStatusColor(novoStatus);
+
+    if (ws && clickupId) {
+      const data = ws.getDataRange().getValues();
+      const headers = data[0];
+      let colIdClickup = -1;
+      let colStatus = -1;
+      let colStatusColor = -1;
+
+      headers.forEach((h, i) => {
+        let t = String(h).toUpperCase().trim();
+        if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') colIdClickup = i;
+        if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') colStatus = i;
+        if (t === 'STATUS COR' || t === 'STATUS COLOR' || t === 'STATUS CLICKUP COR' || t === 'COR STATUS') colStatusColor = i;
+      });
+
+      if (colIdClickup !== -1 && colStatus !== -1) {
+        for (let i = 1; i < data.length; i++) {
+          if (String(data[i][colIdClickup]).trim() === String(clickupId).trim()) {
+            ws.getRange(i + 1, colStatus + 1).setValue(novoStatus);
+            if (colStatusColor !== -1) {
+              ws.getRange(i + 1, colStatusColor + 1).setValue(statusColor);
+            }
+            SpreadsheetApp.flush();
+            break;
+          }
+        }
+      }
+    }
+
+    try {
+      CacheService.getScriptCache().remove("payload_dashboard_v6");
+    } catch(e) {}
+
+    return { success: true, status: novoStatus, color: statusColor };
+  } catch(e) {
+    console.error("Erro em atualizarStatusClickupBackend: " + e.message);
+    return { success: false, msg: e.message };
+  }
+}
+
+function mapClickupStatusColor(status) {
+  const s = String(status || "").toLowerCase().trim();
+  if (!s) return "";
+  if (s.includes("final") || s.includes("conclu") || s.includes("fechad")) return "#10B981";
+  if (s.includes("cancel")) return "#EF4444";
+  if (s.includes("pernoite")) return "#F59E0B";
+  return "#3B82F6";
 }

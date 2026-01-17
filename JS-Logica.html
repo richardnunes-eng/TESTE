@@ -16,6 +16,17 @@ let state = {
 let searchTimeout = null;
 let loadingSafetyTimer = null;
 let selectedDriverId = null;
+const CLICKUP_STATUS_OPTIONS = [
+    "EM ROTA",
+    "AGUARDANDO DESCARGA",
+    "EM DESCARGA",
+    "RETORNO",
+    "AGUARDANDO RECARGA",
+    "EM RECARGA",
+    "PERNOITE",
+    "Fechado",
+    "FINALIZADA"
+];
 
 // ============================================================================
 // INICIALIZAÇÃO
@@ -714,12 +725,22 @@ function normalizeClickupColor(color) {
     return '';
 }
 
+function getClickupLabelColor(label) {
+    const l = String(label || '').toLowerCase().trim();
+    if (!l) return '';
+    if (l.includes('final') || l.includes('conclu') || l.includes('fechad')) return 'var(--accent)';
+    if (l.includes('cancel')) return 'var(--danger)';
+    if (l.includes('pernoite')) return 'var(--warning)';
+    return 'var(--primary)';
+}
+
 function buildClickupBadge(d, mode) {
     const label = String(d.statusClickup || '').trim();
     if (!label) return '';
-    const color = normalizeClickupColor(d.statusClickupColor) || 'var(--clickup-color)';
+    const color = getClickupLabelColor(label) || normalizeClickupColor(d.statusClickupColor) || 'var(--clickup-color)';
     const sizeClass = mode === 'table' ? 'clickup-badge-xs' : 'clickup-badge-sm';
-    return `<span class="status-badge clickup-badge ${sizeClass}" style="--clickup-status-color: ${color};">${label}</span>`;
+    const safeId = String(d.id || '').trim();
+    return `<span class="status-badge clickup-badge ${sizeClass}" onclick="openClickupStatusMenu(event, '${safeId}')" style="--clickup-status-color: ${color};">${label}</span>`;
 }
 
 function getDriverDelay(driver) {
@@ -871,6 +892,98 @@ window.openModal = function(id) {
     }, 50);
 }
 
+window.openClickupStatusMenu = function(evt, id) {
+    if (evt) {
+        evt.stopPropagation();
+        evt.preventDefault();
+    }
+
+    selectedDriverId = String(id).trim();
+
+    const menu = document.getElementById('clickupStatusMenu');
+    const container = document.getElementById('clickupStatusOptions');
+    if (!menu || !container) return;
+
+    const quickMenu = document.getElementById('quickActionMenu');
+    if (quickMenu) quickMenu.style.display = 'none';
+
+    container.innerHTML = '';
+    const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
+    const currentStatus = driver ? String(driver.statusClickup || '').trim() : '';
+    const currentNorm = currentStatus.toLowerCase();
+
+    CLICKUP_STATUS_OPTIONS.forEach(status => {
+        const btn = document.createElement('button');
+        btn.className = 'status-option' + (currentNorm === String(status).toLowerCase() ? ' active' : '');
+        btn.style.setProperty('--status-color', getClickupLabelColor(status) || 'var(--primary)');
+        btn.innerHTML = `<span class="status-dot"></span><span>${status}</span>`;
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            setClickupStatus(status);
+        };
+        container.appendChild(btn);
+    });
+
+    const clickX = evt ? evt.clientX : window.innerWidth / 2;
+    const clickY = evt ? evt.clientY : window.innerHeight / 2;
+    const menuWidth = 260;
+    const menuHeight = 380;
+
+    if (clickX + menuWidth > window.innerWidth) menu.style.left = (clickX - menuWidth) + 'px';
+    else menu.style.left = clickX + 'px';
+
+    if (clickY + menuHeight > window.innerHeight) menu.style.top = (clickY - menuHeight) + 'px';
+    else menu.style.top = clickY + 'px';
+
+    menu.style.display = 'block';
+
+    setTimeout(() => {
+        const closeMenu = () => {
+            menu.style.display = 'none';
+            document.removeEventListener('click', closeMenu);
+        };
+        document.addEventListener('click', closeMenu);
+    }, 50);
+}
+
+function showClickupOverlay(title, subtitle) {
+    const overlay = document.getElementById('clickupSuccessOverlay');
+    const titleEl = document.getElementById('clickupOverlayTitle');
+    const subEl = document.getElementById('clickupOverlaySub');
+    if (titleEl) titleEl.innerText = title || 'Atualizado!';
+    if (subEl) subEl.innerText = subtitle || 'Status sincronizado no ClickUp.';
+    if (overlay) overlay.classList.add('active');
+    setTimeout(() => { if (overlay) overlay.classList.remove('active'); }, 2500);
+}
+
+function setClickupStatus(novoStatus) {
+    const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
+    const menu = document.getElementById('clickupStatusMenu');
+    if (menu) menu.style.display = 'none';
+
+    if (!driver) { alert("Erro: Motorista não encontrado."); return; }
+    if (!driver.clickupId) { alert("Erro: Esta rota não tem ID do ClickUp vinculado."); return; }
+
+    showClickupOverlay('Atualizando...', 'Enviando novo status ao ClickUp...');
+
+    google.script.run
+        .withSuccessHandler((res) => {
+            if (res.success) {
+                driver.statusClickup = novoStatus;
+                driver.statusClickupColor = res.color || '';
+                saveToCache(state.allDrivers);
+                applyPipeline();
+                showClickupOverlay('Status atualizado!', 'Sincronizado com sucesso no ClickUp.');
+            } else {
+                alert("Erro ao atualizar status: " + res.msg);
+            }
+        })
+        .withFailureHandler((err) => { 
+            alert("Erro de conexão: " + err);
+        })
+        .atualizarStatusClickupBackend(driver.clickupId, novoStatus, driver.id);
+}
+
 function actionClickup() {
     const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
     if(driver && driver.clickupId) {
@@ -930,8 +1043,7 @@ function actionFinalizar() {
         tableAlert.style.opacity = "0";
     }
 
-    const overlay = document.getElementById('clickupSuccessOverlay');
-    if (overlay) overlay.classList.add('active');
+    showClickupOverlay('Finalizando...', 'Atualizando status no ClickUp...');
 
     google.script.run
         .withSuccessHandler((res) => {
@@ -941,6 +1053,7 @@ function actionFinalizar() {
                 saveToCache(state.allDrivers);
                 addSuppression(driver.id);
                 setTimeout(() => { applyPipeline(); }, 2500); 
+                showClickupOverlay('Finalizado!', 'Sincronizado com sucesso no ClickUp.');
             } else {
                 alert("Erro ao finalizar: " + res.msg);
                 if (cardAlert) { 
@@ -957,7 +1070,6 @@ function actionFinalizar() {
         })
         .finalizarTarefaBackend(driver.clickupId, driver.id);
 
-    setTimeout(() => { if(overlay) overlay.classList.remove('active'); }, 3000);
 }
 
 function actionDetalhes() {

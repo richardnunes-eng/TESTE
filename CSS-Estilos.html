@@ -251,6 +251,7 @@
         display: inline-flex;
         align-items: center;
         line-height: 1;
+        cursor: pointer;
     }
     .clickup-badge-sm { font-size: 0.62rem; padding: 4px 8px; }
     .clickup-badge-xs { font-size: 0.58rem; padding: 3px 7px; }
@@ -614,6 +615,41 @@
     }
     .btn-detalhes:hover {
         background: rgba(59, 130, 246, 0.15) !important;
+    }
+
+    .clickup-status-menu { min-width: 260px; }
+    .status-options { display: flex; flex-direction: column; gap: 4px; padding: 4px; }
+    .status-option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        border: none;
+        background: transparent;
+        color: var(--text-main);
+        cursor: pointer;
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.85rem;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: all 0.2s ease;
+        text-align: left;
+    }
+    .status-option:hover {
+        background: var(--input-bg);
+        transform: translateX(2px);
+    }
+    .status-option.active {
+        background: color-mix(in srgb, var(--status-color) 15%, transparent);
+        border: 1px solid color-mix(in srgb, var(--status-color) 45%, transparent);
+    }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--status-color);
+        box-shadow: 0 0 8px color-mix(in srgb, var(--status-color) 70%, transparent);
     }
 
     /* === ANIMAÇÃO DE SUCESSO "FODA" === */
