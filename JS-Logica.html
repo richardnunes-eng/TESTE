@@ -271,7 +271,7 @@ function stopLoader() {
     hideGlobalLoader();
 }
 
-function showGlobalLoader(msg) {
+function showGlobalLoader(msg, mode = 'hard') {
     const startup = document.getElementById('loader');
     if (startup && startup.style.display !== 'none') {
         const quoteEl = document.getElementById('loaderQuote');
@@ -281,7 +281,11 @@ function showGlobalLoader(msg) {
     const loader = document.getElementById('globalLoader');
     const text = document.getElementById('loaderText');
     if (text) text.innerText = msg || 'Processando...';
-    if (loader) loader.style.display = 'flex';
+    if (loader) {
+        loader.classList.toggle('soft', mode === 'soft');
+        loader.style.pointerEvents = mode === 'soft' ? 'none' : 'auto';
+        loader.style.display = 'flex';
+    }
     
     // Segurança: Fecha sozinho se travar por 15s
     clearTimeout(loadingSafetyTimer);
@@ -292,7 +296,11 @@ function showGlobalLoader(msg) {
 
 function hideGlobalLoader() {
     const loader = document.getElementById('globalLoader');
-    if (loader) loader.style.display = 'none';
+    if (loader) {
+        loader.style.display = 'none';
+        loader.classList.remove('soft');
+        loader.style.pointerEvents = '';
+    }
     clearTimeout(loadingSafetyTimer);
 }
 
