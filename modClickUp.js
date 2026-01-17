@@ -33,7 +33,7 @@ const CONFIG_LISTAS = {
 };
 
 const HEADER_PADRAO = [
-  "ID", "Nome", "Status", "URL", "Data de Criação", 
+  "ID", "Nome", "Status", "Status Cor", "URL", "Data de Criação", 
   "Data de Fechamento", "Data de Atualização", 
   "Prioridade", "Tempo Estimado (h)", "Tempo Gasto (h)", 
   "Tipo de Tarefa", "ID do Pai", "Checklists"
@@ -244,6 +244,7 @@ function processarTarefa(task, camposMap, nomeAba) {
     "ID": task.id,
     "Nome": task.name,
     "Status": task.status ? task.status.status : "",
+    "Status Cor": task.status ? task.status.color : "",
     "URL": task.url,
     "Data de Criação": msToDate(task.date_created),
     "Data de Fechamento": msToDate(task.date_closed),

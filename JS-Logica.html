@@ -526,6 +526,7 @@ function renderGrid(list) {
         let badgeClass = getBadgeClass(d.statusClass);
         let barColor = getBarColor(d.statusClass);
         let telDisplay = d.tel || 'S/ Tel';
+        let clickupBadge = buildClickupBadge(d, 'card');
 
         // Lógica de alerta do ClickUp
         let clickupAlertHtml = '';
@@ -564,6 +565,7 @@ function renderGrid(list) {
                 </div>
                 <div class="status-container">
                     <span class="status-badge ${badgeClass}">${d.statusLabel}</span>
+                    ${clickupBadge}
                     <div class="timeline-badge"><div class="timeline-dot"></div> ${d.dataSaida || '--/--'}</div>
                 </div>
             </div>
@@ -609,6 +611,7 @@ function renderTable(list) {
         let barColor = getBarColor(d.statusClass);
         let statusColor = getStatusColor(d.statusClass);
         let valFmt = d.valorTotal ? d.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+        let clickupBadge = buildClickupBadge(d, 'table');
         
         let telDisplay = d.tel || '--';
         let btnCopyHtml = '';
@@ -631,9 +634,12 @@ function renderTable(list) {
         let html = `
         <tr onclick="openModal('${safeId}')" style="border-left: 3px solid ${statusColor}; cursor: pointer; transition: background 0.1s;">
             <td style="white-space: nowrap; width: 1%;">
-                <div style="display:flex; align-items:center; gap: 8px;">
-                    <span class="status-badge ${badgeClass}">${d.statusLabel}</span>
-                    ${clickupIcon}
+                <div style="display:flex; flex-direction:column; gap: 6px;">
+                    <div style="display:flex; align-items:center; gap: 8px;">
+                        <span class="status-badge ${badgeClass}">${d.statusLabel}</span>
+                        ${clickupIcon}
+                    </div>
+                    ${clickupBadge}
                 </div>
             </td>
             <td>
@@ -696,6 +702,24 @@ function getStatusColor(s) {
     if(s=='warning') return 'var(--warning)'; 
     if(s=='danger') return 'var(--danger)'; 
     return 'var(--primary)'; 
+}
+
+function normalizeClickupColor(color) {
+    if (!color) return '';
+    let c = String(color).trim();
+    if (!c) return '';
+    if (c.startsWith('rgb')) return c;
+    if (!c.startsWith('#')) c = `#${c}`;
+    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c)) return c;
+    return '';
+}
+
+function buildClickupBadge(d, mode) {
+    const label = String(d.statusClickup || '').trim();
+    if (!label) return '';
+    const color = normalizeClickupColor(d.statusClickupColor) || 'var(--clickup-color)';
+    const sizeClass = mode === 'table' ? 'clickup-badge-xs' : 'clickup-badge-sm';
+    return `<span class="status-badge clickup-badge ${sizeClass}" style="--clickup-status-color: ${color};">${label}</span>`;
 }
 
 function getDriverDelay(driver) {

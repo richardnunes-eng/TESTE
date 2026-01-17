@@ -240,6 +240,20 @@
     .badge-warning { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
     .badge-danger { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
     .badge-secondary { background: rgba(100, 116, 139, 0.1); color: var(--text-muted); }
+    .clickup-badge { 
+        --clickup-status-color: var(--clickup-color);
+        background: color-mix(in srgb, var(--clickup-status-color) 18%, transparent);
+        border: 1px solid color-mix(in srgb, var(--clickup-status-color) 45%, transparent);
+        color: var(--clickup-status-color);
+        text-transform: none;
+        letter-spacing: 0.3px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        line-height: 1;
+    }
+    .clickup-badge-sm { font-size: 0.62rem; padding: 4px 8px; }
+    .clickup-badge-xs { font-size: 0.58rem; padding: 3px 7px; }
 
     .progress-bar { height: 6px; background: var(--input-bg); border-radius: 4px; margin: 15px 0 10px 0; overflow: hidden; }
     .progress-fill { height: 100%; border-radius: 4px; transition: width 1s ease; }

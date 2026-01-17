@@ -157,6 +157,11 @@ function getDashboardData(modo) {
           dataMainRaw[i][colMain.STATUS_CLICKUP] ||
           ""
         ).trim();
+        const statusClickupColor = String(
+          (colMain.STATUS_CLICKUP_COLOR !== -1 ? dataMainDisplay[i][colMain.STATUS_CLICKUP_COLOR] : "") ||
+          dataMainRaw[i][colMain.STATUS_CLICKUP_COLOR] ||
+          ""
+        ).trim();
         const statusLower = statusClickup.toLowerCase();
         const isDone = statusLower.includes("finaliz") || statusLower.includes("conclu") || statusLower.includes("entreg") || statusLower.includes("fechad");
         const isDev = statusLower.includes("devol") || statusLower.includes("retorn") || statusLower.includes("return");
@@ -183,6 +188,7 @@ function getDashboardData(modo) {
           cliente: nomeSubtask || "Reentrega",
           clienteCodigo: "---",
           status: statusClickup || "Reentrega",
+          statusColor: statusClickupColor || "",
           hora: "--:--",
           saida: "--:--",
           isDev: isDev,
@@ -412,6 +418,12 @@ function getDashboardData(modo) {
         prog = Math.round((totaisFallback.feitos / totaisFallback.total) * 100) || 0;
       }
 
+      const statusClickupColor = String(
+        (colMain.STATUS_CLICKUP_COLOR !== -1 ? dataMainDisplay[i][colMain.STATUS_CLICKUP_COLOR] : "") ||
+        dataMainRaw[i][colMain.STATUS_CLICKUP_COLOR] ||
+        ""
+      ).trim();
+
       payload.drivers.push({
         id: planoChave,
         placa: String(dataMainRaw[i][colMain.PLACA] || "").toUpperCase(),
@@ -429,6 +441,7 @@ function getDashboardData(modo) {
         unidade: dataMainRaw[i][colMain.UNIDADE] || "---",
         clickupId: dataMainRaw[i][colMain.ID_CLICKUP] || "",
         statusClickup: dataMainRaw[i][colMain.STATUS_CLICKUP] || "",
+        statusClickupColor: statusClickupColor,
         dataSaida: dataSaida,
         dataSaidaIso: dataSaidaIso,
         tempoRota: tempoRota,
@@ -532,7 +545,7 @@ function mapDashboardCols(headers, type) {
     UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
     DEV_CODE:-1, CLIENTE:-1, SEQ:-1, CLIENT_ID:-1, PARENT_ID:-1,
     LOC_DESC:-1, LOC_ADDRESS:-1, LOC_CITY:-1, LOC_DISTRICT:-1,
-    STATUS_CLICKUP:-1, NOME:-1, DATA_CRIACAO:-1, DATA_ATUALIZACAO:-1,
+    STATUS_CLICKUP:-1, STATUS_CLICKUP_COLOR:-1, NOME:-1, DATA_CRIACAO:-1, DATA_ATUALIZACAO:-1,
     DATA_FECHAMENTO:-1, VALOR_MAIN:-1, PESO_MAIN:-1
   };
 
@@ -556,6 +569,7 @@ function mapDashboardCols(headers, type) {
       if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') map.ID_CLICKUP = i;
       if (t === 'ID DO PAI' || t === 'PARENT ID') map.ID_PAI = i;
       if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
+      if (t === 'STATUS COR' || t === 'STATUS COLOR' || t === 'STATUS CLICKUP COR' || t === 'COR STATUS') map.STATUS_CLICKUP_COLOR = i;
       if (t === 'CLIENTE' || t === 'NOME DO CLIENTE') map.CLIENTE = i;
       if (t.includes('VALOR')) map.VALOR_MAIN = i;
       if (t.includes('PESO')) map.PESO_MAIN = i;
