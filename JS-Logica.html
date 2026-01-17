@@ -32,6 +32,7 @@ const CLICKUP_STATUS_OPTIONS = [
 // INICIALIZAÇÃO
 // ============================================================================
 window.onload = function() {
+    initLoaderFailsafe();
     // Tema escuro/claro
     try {
         const themeToggle = document.getElementById('themeToggle');
@@ -230,6 +231,28 @@ function renderDashboard(dataOpcional) {
 // ============================================================================
 // LOADER FUNCTIONS
 // ============================================================================
+function initLoaderFailsafe() {
+    const loader = document.getElementById('loader');
+    if (!loader) return;
+
+    const seen = localStorage.getItem('thx_loader_seen') === '1';
+    if (seen) {
+        stopLoader();
+        return;
+    }
+
+    localStorage.setItem('thx_loader_seen', '1');
+
+    // Evita travar a primeira entrada se a carga demorar demais
+    setTimeout(() => {
+        if (loader.style.display !== 'none') {
+            stopLoader();
+            showGlobalLoader('Carregando dados em segundo plano...');
+            setTimeout(hideGlobalLoader, 2500);
+        }
+    }, 6000);
+}
+
 function stopLoader() {
     // Mata o jogo se estiver rodando
     if(typeof gameRunning !== 'undefined') gameRunning = false;
