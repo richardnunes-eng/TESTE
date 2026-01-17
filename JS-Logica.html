@@ -332,12 +332,12 @@ function stopLoaderQuotes() {
 // ============================================================================
 // PIPELINE DE FILTROS (CORRIGIDO)
 // ============================================================================
-function applyPipeline(showLoader = true) {
+function applyPipeline(showLoader = true, loaderMode = 'hard') {
     // Mostra o loading APENAS se showLoader for true
     if (showLoader) {
         const loader = document.getElementById('globalLoader');
         if(!loader || loader.style.display === 'none') {
-            showGlobalLoader('Atualizando visualização...');
+            showGlobalLoader('Atualizando visualização...', loaderMode);
         }
     }
 
@@ -499,7 +499,7 @@ function setQuickFilter(status, btn) {
         if (match) match.classList.add('active');
     }
 
-    applyPipeline(false);
+    applyPipeline(true, 'soft');
 }
 
 function sortPipeline(key) {
