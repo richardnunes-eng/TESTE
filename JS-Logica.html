@@ -39,6 +39,49 @@ const LOADER_QUOTES = [
 ];
 
 // ============================================================================
+// UTILITÁRIOS DE DATA (FILTRO INICIAL)
+// ============================================================================
+function getLocalIsoDate(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function getOldestOpenDateIso(drivers) {
+    let minIso = null;
+    if (!Array.isArray(drivers)) return null;
+    drivers.forEach(d => {
+        const statusNorm = String(d.status || '').toUpperCase();
+        if (statusNorm === 'FINALIZADO') return;
+        const iso = d.dataSaidaIso;
+        if (!iso) return;
+        if (!minIso || iso < minIso) minIso = iso;
+    });
+    return minIso;
+}
+
+function applyDefaultDateRangeForOpen(drivers, force = false) {
+    const dateStartEl = document.getElementById('dateStart');
+    const dateEndEl = document.getElementById('dateEnd');
+    if (!dateStartEl || !dateEndEl) return;
+
+    if (!force && (dateStartEl.value || dateEndEl.value)) return;
+
+    const todayIso = getLocalIsoDate(new Date());
+    const oldestOpenIso = getOldestOpenDateIso(drivers);
+
+    if (oldestOpenIso) {
+        dateStartEl.value = oldestOpenIso;
+        dateEndEl.value = todayIso;
+    } else {
+        // Sem itens em aberto com data: mantém início vazio e limita até hoje
+        if (!dateStartEl.value) dateStartEl.value = '';
+        dateEndEl.value = todayIso;
+    }
+}
+
+// ============================================================================
 // INICIALIZAÇÃO
 // ============================================================================
 window.onload = function() {
@@ -186,6 +229,9 @@ function loadData(modo = 'check') {
             state.allDrivers = incomingDrivers;
             prepareSearchIndex(state.allDrivers);
             saveToCache(state.allDrivers); 
+
+            // Define filtro padrão: do item em aberto mais antigo até hoje
+            applyDefaultDateRangeForOpen(state.allDrivers);
             
             // Atualiza Label de Data/Hora
             const agora = new Date();
