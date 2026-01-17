@@ -256,8 +256,24 @@
     .clickup-badge-sm { font-size: 0.62rem; padding: 4px 8px; }
     .clickup-badge-xs { font-size: 0.58rem; padding: 3px 7px; }
 
-    .progress-bar { height: 6px; background: var(--input-bg); border-radius: 4px; margin: 15px 0 10px 0; overflow: hidden; }
-    .progress-fill { height: 100%; border-radius: 4px; transition: width 1s ease; }
+    .progress-bar { height: 6px; background: var(--input-bg); border-radius: 4px; margin: 15px 0 10px 0; overflow: hidden; position: relative; }
+    .progress-fill { height: 100%; border-radius: 4px; transition: width 1s ease; position: absolute; left: 0; top: 0; }
+    .progress-return { height: 100%; border-radius: 4px; transition: width 0.6s ease; position: absolute; left: 0; top: 0; background: var(--danger); }
+    .progress-bar-mini { height: 4px; margin: 0; border-radius: 2px; }
+    .progress-bar-mini .progress-fill,
+    .progress-bar-mini .progress-return { border-radius: 2px; }
+    .progress-legend {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin-top: 6px;
+        font-weight: 600;
+    }
+    .progress-legend-mini {
+        font-size: 0.62rem;
+        margin-top: 4px;
+    }
     .stats-row { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); font-weight: 500; }
     .click-hint { margin-top: auto; padding-top: 15px; border-top: 1px solid var(--input-border); font-size: 0.75rem; color: var(--text-muted); text-align: center; text-transform: uppercase; letter-spacing: 1px; opacity: 0; transition: opacity 0.3s; }
     .card-driver:hover .click-hint { opacity: 0.7; }

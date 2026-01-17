@@ -350,9 +350,13 @@ function getDashboardData(modo) {
       const dadosGM = mapGMData.get(planoChave);
       
       let status = "OUTROS", label = "Apoio / Outros", sClass = "secondary", prog = 0;
+      let devPct = 0;
+      let entreguePct = 0;
 
       if (dadosGM && dadosGM.total > 0) {
         prog = Math.round((dadosGM.feitos / dadosGM.total) * 100) || 0;
+        devPct = Math.round((dadosGM.dev / dadosGM.total) * 100) || 0;
+        entreguePct = Math.max(prog - devPct, 0);
         status = "EM_ROTA"; label = "Em Trânsito"; sClass = "info";
 
         if (prog >= 100) {
@@ -416,6 +420,8 @@ function getDashboardData(modo) {
 
       if ((!dadosGM || dadosGM.total === 0) && totaisFallback.total > 0) {
         prog = Math.round((totaisFallback.feitos / totaisFallback.total) * 100) || 0;
+        devPct = Math.round((totaisFallback.dev / totaisFallback.total) * 100) || 0;
+        entreguePct = Math.max(prog - devPct, 0);
       }
 
       const statusClickupColor = String(
@@ -432,6 +438,8 @@ function getDashboardData(modo) {
         veiculo: toTitleCase(motoristaInfo.modelo || "Veículo"),
         plano: planoFull,
         progresso: prog,
+        devolucaoPct: Math.min(Math.max(devPct, 0), 100),
+        entreguePct: Math.min(Math.max(entreguePct, 0), 100),
         status: status,
         statusLabel: label,
         statusClass: sClass,
