@@ -95,14 +95,40 @@ function getDashboardData(modo) {
     }
 
     // Mapeamento NFe
-    const mapNfeByStopKey = new Map();
+    const mapNfeByCompositeKey = new Map();
+    const mapNfeByPlanClientKey = new Map();
+    const mapNfeByClientKey = new Map();
+    const mapPlanIdByRouteKey = new Map();
+
+    if (colMain.PLANO !== -1 && colMain.ID_CLICKUP !== -1 && colMain.TIPO !== -1) {
+      for (let i = 1; i < dataMainRaw.length; i++) {
+        const tipo = String(dataMainRaw[i][colMain.TIPO] || "").toLowerCase();
+        if (!tipo.includes("principal")) continue;
+        const planoFull = String(dataMainRaw[i][colMain.PLANO] || "");
+        const planoChave = normalizarChave(planoFull.split('-')[0]);
+        const planId = String(dataMainRaw[i][colMain.ID_CLICKUP] || "").trim();
+        if (planoChave && planId) mapPlanIdByRouteKey.set(planoChave, planId);
+      }
+    }
+
     if (colMain.ID_GM_LOC !== -1 && colMain.CHECKLISTS !== -1) {
       for (let i = 1; i < dataMainDisplay.length; i++) {
-        const locKey = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
+        const clientId = String(dataMainDisplay[i][colMain.ID_GM_LOC] || "").trim();
         const nfe = String(dataMainDisplay[i][colMain.CHECKLISTS] || "").trim();
-        if (locKey && nfe && nfe !== "" && nfe !== "---") {
-          const atual = mapNfeByStopKey.get(locKey);
-          mapNfeByStopKey.set(locKey, atual ? (atual.includes(nfe) ? atual : atual + ", " + nfe) : nfe);
+        const taskId = colMain.ID_CLICKUP !== -1 ? String(dataMainDisplay[i][colMain.ID_CLICKUP] || "").trim() : "";
+        const parentId = colMain.ID_PAI !== -1 ? String(dataMainDisplay[i][colMain.ID_PAI] || "").trim() : "";
+        const planId = parentId && parentId !== "-" ? parentId : taskId;
+
+        if (clientId && nfe && nfe !== "" && nfe !== "---") {
+          const compositeKey = buildNfeKey({ taskId, parentId, clientId });
+          addNfeToMap(mapNfeByCompositeKey, compositeKey, nfe);
+
+          if (planId) {
+            const planClientKey = buildNfeKey({ parentId: planId, clientId });
+            addNfeToMap(mapNfeByPlanClientKey, planClientKey, nfe);
+          }
+
+          addNfeToMap(mapNfeByClientKey, clientId, nfe);
         }
       }
     }
@@ -168,6 +194,10 @@ function getDashboardData(modo) {
           row[colGM.LOC_CITY]
         );
 
+        const clientId = String(row[colGM.LOC_KEY] || "").trim();
+        const planId = mapPlanIdByRouteKey.get(rKey) || "";
+        const planClientKey = buildNfeKey({ parentId: planId, clientId });
+
         rota.stops.push({
           seq: parseInt(row[colGM.SEQ] || 0),
           cliente: String(row[colGM.CLIENTE] || "").substring(0, 25),
@@ -177,7 +207,9 @@ function getDashboardData(modo) {
           isDev: isDev,
           isDone: isDone,
           permanencia: permanencia,
-          nfe: mapNfeByStopKey.get(String(row[colGM.LOC_KEY] || "").trim()) || "---",
+          nfe: mapNfeByPlanClientKey.get(planClientKey)
+            || mapNfeByClientKey.get(clientId)
+            || "---",
           enderecoCompleto: enderecoCompleto
         });
       }
@@ -345,12 +377,32 @@ function montarEnderecoCompleto(desc, addressLine1, district, city) {
   return partes.join(" - ");
 }
 
+function buildNfeKey({ taskId, parentId, clientId }) {
+  const parts = [];
+  if (taskId) parts.push(`task:${taskId}`);
+  if (parentId) parts.push(`parent:${parentId}`);
+  if (clientId) parts.push(`client:${clientId}`);
+  return parts.join("|");
+}
+
+function addNfeToMap(map, key, nfe) {
+  if (!key || !nfe) return;
+  const atual = map.get(key);
+  if (!atual) {
+    map.set(key, nfe);
+    return;
+  }
+  if (!atual.includes(nfe)) {
+    map.set(key, `${atual}, ${nfe}`);
+  }
+}
+
 function mapDashboardCols(headers, type) {
   const map = {
     PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
     ARR:-1, DEP:-1, STATUS:-1,
     PESO_P:-1, PESO_A:-1,
-    ID_GM_LOC:-1, CHECKLISTS:-1, TIPO:-1,
+    ID_GM_LOC:-1, CHECKLISTS:-1, TIPO:-1, ID_PAI:-1,
     VALOR:-1, LOC_KEY:-1,
     DATA_SAIDA:-1, ID_CLICKUP:-1,
     UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
@@ -373,6 +425,7 @@ function mapDashboardCols(headers, type) {
       if (t === 'TIPO DE TAREFA' || t === 'TIPO') map.TIPO = i;
       if (t === 'DATA DE SAÍDA' || t === 'DATA DE SAIDA') map.DATA_SAIDA = i;
       if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') map.ID_CLICKUP = i;
+      if (t === 'ID DO PAI' || t === 'PARENT ID') map.ID_PAI = i;
       if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
     }
 
