@@ -612,7 +612,8 @@ function exportDashboardXlsx() {
     const exportFile = DriveApp.createFile(exportBlob);
     DriveApp.getFileById(ss.getId()).setTrashed(true);
 
-    return { url: exportFile.getUrl() };
+    const downloadUrl = "https://drive.google.com/uc?export=download&id=" + exportFile.getId();
+    return { url: downloadUrl, viewUrl: exportFile.getUrl(), fileId: exportFile.getId() };
   } catch (e) {
     console.error("Erro ao exportar XLSX: " + e.message);
     return { error: "Erro ao exportar XLSX: " + e.message };
