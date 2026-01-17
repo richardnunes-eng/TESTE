@@ -741,7 +741,7 @@ function buildClickupBadge(d, mode) {
     const sizeClass = mode === 'table' ? 'clickup-badge-xs' : 'clickup-badge-sm';
     const safeId = String(d.id || '').trim();
     const labelUpper = label.toUpperCase();
-    return `<span class="status-badge clickup-badge ${sizeClass}" onclick="openClickupStatusMenu(event, '${safeId}')" style="--clickup-status-color: ${color};">${labelUpper}</span>`;
+    return `<span class="status-badge clickup-badge ${sizeClass}" onclick="openClickupStatusMenu(event, '${safeId}')" style="--clickup-status-color: ${color};" title="Status do ClickUp">CLICKUP: ${labelUpper}</span>`;
 }
 
 function getDriverDelay(driver) {
