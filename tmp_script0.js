@@ -1,5 +1,5 @@
-<script>
-// ============================================================================
+
+    // ============================================================================
 // JS-LOGICA.HTML - VERSÃO CORRIGIDA E OTIMIZADA
 // ============================================================================
 
@@ -1694,90 +1694,5 @@ window.renderDetailedModal = function(id) {
             // ✅ CORRETO
             let valorNum = typeof s.valor === 'number' 
                 ? s.valor 
-                : parseFloat(String(s.valor).replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
-            let hasValue = valorNum > 0;
-            let hasNfe = (s.nfe && s.nfe !== "" && s.nfe !== "---");
-            let pesoNum = parseFloat(String(s.peso).replace(',', '.')) || 0;
-            let hasPeso = pesoNum > 0;
-            let clienteCodigo = s.clienteCodigo && s.clienteCodigo !== "---" ? s.clienteCodigo : "";
-            let hasClienteCodigo = clienteCodigo !== "";
-            let enderecoCompleto = String(s.enderecoCompleto || "").trim();
-            let hasEndereco = enderecoCompleto !== "";
-            let hiddenContent = '';
-            let detailsId = `stop-details-${index}`;
-
-            if (hasValue || hasNfe || hasPeso || hasClienteCodigo || hasEndereco || s.hora || s.saida || s.permanencia !== null) {
-                let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
-                let nfeStr = hasNfe ? s.nfe : '-';
-                let pesoStr = hasPeso ? `${pesoNum.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` : '-';
-                let clienteCodigoStr = hasClienteCodigo ? clienteCodigo : '-';
-                let enderecoStr = hasEndereco ? enderecoCompleto : '-';
-                let chegadaStr = s.hora ? s.hora : '-';
-                let saidaStr = s.saida ? s.saida : '-';
-                let permanenciaStr = '-';
-                if (s.permanencia !== null && s.permanencia !== undefined) {
-                    let hh = Math.floor(s.permanencia / 60);
-                    let mm = s.permanencia % 60;
-                    permanenciaStr = hh > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${mm} min`;
-                }
-
-                hiddenContent = `<div id="${detailsId}" class="stop-extended-details" style="display:none;">` +
-                    `<div class="det-item"><span class="det-label">Chegada:</span> <span class="det-val">${chegadaStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Saída:</span> <span class="det-val">${saidaStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Permanência:</span> <span class="det-val">${permanenciaStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Valor:</span> <span class="det-val">${valStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">NF-e:</span> <span class="det-val">${nfeStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Peso:</span> <span class="det-val">${pesoStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Código do cliente:</span> <span class="det-val">${clienteCodigoStr}</span></div>` +
-                    `<div class="det-item"><span class="det-label">Endereço completo:</span> <span class="det-val">${enderecoStr}</span></div>` +
-                `</div>`;
-            }
-            let clientNameHtml = (hiddenContent !== '') ? `<span class="client-name-link" onclick="toggleStopDetails('${detailsId}')">${s.cliente} <span style="font-size:10px">▼</span></span>` : s.cliente;
-
-            htmlBuffer += `
-            <div class="stop-row" style="flex-wrap: wrap;">
-                <div style="display:flex; width:100%; align-items:center; gap:12px;">
-                    <span class="material-icons-round stop-icon ${cls}">${icon}</span>
-                    <div class="stop-info" style="flex:1">
-                        <div style="font-weight: 600; font-size: 0.9rem;">${clientNameHtml}</div>
-                        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Seq: ${s.seq} • ${s.status}</div>
-                    </div>
-                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px; min-width: 90px;">
-                        <span style="font-family:'Outfit', monospace; font-size:0.8rem; color:var(--text-main); font-weight:600;">${horarioTexto}</span>
-                        <span style="font-family:'Outfit', sans-serif; font-size:0.75rem; padding:2px 8px; border-radius:6px; ${badgeStyle} text-align:center; white-space:nowrap;">${badgeTexto}</span>
-                    </div>
-                </div>
-                <div style="width:100%; padding-left: 36px;">${hiddenContent}</div>
-            </div>`;
-        });
-    }
-    content.innerHTML = htmlBuffer;
-    document.getElementById('modal').classList.add('active');
-};
-
-window.closeModal = function() { 
-    document.getElementById('modal').classList.remove('active'); 
-}
-
-// ============================================================================
-// FORMULÁRIO DE OCORRÊNCIA
-// ============================================================================
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('incidentForm');
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('submitBtn');
-            btn.disabled = true; 
-            google.script.run.withSuccessHandler(function() {
-                document.getElementById('successOverlay').classList.add('active');
-                setTimeout(() => { 
-                    document.getElementById('incidentForm').reset(); 
-                    document.getElementById('successOverlay').classList.remove('active'); 
-                    btn.disabled = false; 
-                }, 3000);
-            }).salvarOcorrencia(this);
-        });
-    }
-});
-</script>
+                : parseFloat(String(s.valor).replace('R
+    
