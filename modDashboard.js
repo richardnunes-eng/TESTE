@@ -164,6 +164,31 @@ function runRelatoriosLoop() {
   });
 }
 
+function syncClickupAndGetDashboard(modo) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
+  }
+  try {
+    if (typeof ExecutarIntegracaoMestre === 'function') {
+      ExecutarIntegracaoMestre();
+    }
+    try {
+      CacheService.getScriptCache().remove("payload_dashboard_v6");
+    } catch (e) {}
+    return getDashboardData(modo || "force");
+  } catch (e) {
+    const needsAuth = isAuthError(e);
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
+  }
+}
+
 /**
  * FUNÇÃO PRINCIPAL - RETORNA DADOS DO DASHBOARD
  */
@@ -182,7 +207,7 @@ function getDashboardData(modo) {
   try {
     const cache = CacheService.getScriptCache();
     const cacheKey = "payload_dashboard_v6";  // ✅ Nova versão do cache
-    const CACHE_DURATION = 600;
+    const CACHE_DURATION = 60;
     
     // Fast path com cache
     if (modo !== 'force') {
@@ -1308,8 +1333,6 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
-
-
 
 
 

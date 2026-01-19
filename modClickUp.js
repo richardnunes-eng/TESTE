@@ -14,8 +14,9 @@
 const CLICKUP_TOKEN = "pk_87986690_9X1MC60UE18B1X9PEJFRMEFTT6GNHHFS"; 
 const BASE_URL = "https://api.clickup.com/api/v2/list/";
 
-// ✅ DATA MÍNIMA - 1 de Dezembro de 2025
-const DATA_MINIMA_CLICKUP = new Date("2025-12-01T00:00:00").getTime();
+  // ✅ DATA MÍNIMA - 1 de Dezembro de 2025
+  const DATA_MINIMA_CLICKUP = new Date("2025-12-01T00:00:00").getTime();
+  const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
 
 // ✅ STATUS IGNORADOS (não puxa esses)
 const STATUS_IGNORADOS = ["sinistro", "cancelado"];
@@ -74,16 +75,23 @@ function sincronizarLista(ss, scriptProps, config) {
   const { id: listId, nomeAba } = config;
   const lastTimeKey = `LAST_TIME_${nomeAba}`;
   
-  // Timestamp de início
-  let lastTime = scriptProps.getProperty(lastTimeKey);
-  let timeStart = lastTime ? parseInt(lastTime) : DATA_MINIMA_CLICKUP;
+    // Timestamp de início
+    let lastTime = scriptProps.getProperty(lastTimeKey);
+    let timeStart = lastTime ? parseInt(lastTime) : DATA_MINIMA_CLICKUP;
+    const timeNow = Date.now();
+    if (Number.isNaN(timeStart)) timeStart = DATA_MINIMA_CLICKUP;
+    // Se o lastTime ficou no futuro, corrige para evitar buracos
+    if (timeStart > timeNow) {
+      timeStart = timeNow - SYNC_OVERLAP_MS;
+    }
   
   // Garantir que não busque antes de dezembro/2025
   if (timeStart < DATA_MINIMA_CLICKUP) {
     timeStart = DATA_MINIMA_CLICKUP;
   }
   
-  const timeNow = Date.now();
+    // Aplicar overlap para cobrir atrasos de atualizacao no ClickUp
+    timeStart = Math.max(timeStart - SYNC_OVERLAP_MS, DATA_MINIMA_CLICKUP);
   
   console.log(`📋 [${nomeAba}] ${nomeAba === "MOTORISTAS" ? "Buscando TUDO (sem filtro de data)" : "Buscando desde: " + new Date(timeStart).toLocaleDateString('pt-BR')}`);
 

@@ -77,7 +77,7 @@
                 <span class="date-separator">ATÉ</span>
                 <input type="date" id="dateEnd" class="date-input-clean">
                     </div>
-                    <button class="btn-refresh" id="refreshBtn" onclick="loadData('force')"><span class="material-icons-round" id="refreshIcon">sync</span></button>
+                    <button class="btn-refresh" id="refreshBtn" onclick="loadData('force', { syncClickup: true })"><span class="material-icons-round" id="refreshIcon">sync</span></button>
                     <button class="btn-export" id="exportBtn" onclick="exportXlsx()"><span class="material-icons-round">file_download</span> Exportar XLSX</button>
                 </div>
             </div>
@@ -311,7 +311,6 @@ function applyPipelineAsync() {
 }
 </script>
 </html>
-
 
 
 

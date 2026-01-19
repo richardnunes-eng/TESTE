@@ -38,12 +38,12 @@ const LOADER_QUOTES = [
     { text: "Tudo o que temos de decidir é o que fazer com o tempo que nos é dado.", author: "J.R.R. Tolkien", book: "O Senhor dos Anéis" },
     { text: "Estratégia sem tática é o caminho mais lento para a vitória. Tática sem estratégia é o ruído antes da derrota.", author: "Sun Tzu", book: "A Arte da Guerra" }
 ];
-let autoSyncTimerId = null;
-let autoSyncBackoffMs = 300000;
-let loadDataInFlight = false;
-let pendingForceReload = false;
-const AUTO_SYNC_BASE_MS = 300000;
-const AUTO_SYNC_MAX_MS = 1800000;
+  let autoSyncTimerId = null;
+  let autoSyncBackoffMs = 60000;
+  let loadDataInFlight = false;
+  let pendingForceReload = false;
+  const AUTO_SYNC_BASE_MS = 60000;
+  const AUTO_SYNC_MAX_MS = 600000;
 
 function parsePermanenciaMinutes(raw) {
     if (raw === null || raw === undefined || raw === '') return null;
@@ -172,8 +172,8 @@ function handleNeedsAuth(message) {
 
 function checkAuthAndStart(showToastOnOk = false) {
     showGlobalLoader('Verificando autorizacao...', 'soft');
-    google.script.run
-        .withSuccessHandler(res => {
+      const runner = google.script.run
+          .withSuccessHandler(res => {
             hideGlobalLoader();
 
             const validation = validateApiResponse(res, 'checkAuth');
@@ -190,8 +190,8 @@ function checkAuthAndStart(showToastOnOk = false) {
             // Sucesso - dados em validation.data (userEmail, env, version, etc)
             if (showToastOnOk) showToast('Autorizacao confirmada.', 'check_circle');
             startApp();
-        })
-        .withFailureHandler(err => {
+          })
+          .withFailureHandler(err => { 
             hideGlobalLoader();
             console.warn('Falha ao verificar autorizacao:', err);
             handleNeedsAuth('Nao foi possivel verificar a autorizacao. Tente novamente.');
@@ -412,9 +412,13 @@ function loadData(modo = 'check', opts = {}) {
                 autoSyncBackoffMs = Math.min(autoSyncBackoffMs * 2, AUTO_SYNC_MAX_MS);
                 scheduleAutoSync(autoSyncBackoffMs);
             }
-        })
-        .getDashboardData(modo); 
-}
+          });
+      if (opts && opts.syncClickup) {
+          runner.syncClickupAndGetDashboard(modo);
+      } else {
+          runner.getDashboardData(modo);
+      }
+  }
 // ============================================================================
 // RENDER DASHBOARD
 // ============================================================================
@@ -556,7 +560,7 @@ function applyPipeline(showLoader = true, loaderMode = 'hard') {
             const effectiveEnd = end || start;
             if (start || effectiveEnd) {
                 result = result.filter(d => {
-                    if (!d.dataSaidaIso) return false;
+                    if (!d.dataSaidaIso) return true;
                     if (start && d.dataSaidaIso < start) return false;
                     if (effectiveEnd && d.dataSaidaIso > effectiveEnd) return false;
                     return true;
@@ -1952,4 +1956,3 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-
