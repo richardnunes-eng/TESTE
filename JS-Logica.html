@@ -327,10 +327,10 @@ function loadData(modo = 'check', opts = {}) {
         }
     }, 30000);
     
-    google.script.run
-        .withSuccessHandler(res => {
-            clearTimeout(timeoutId);
-            loadDataInFlight = false;
+      const runner = google.script.run
+          .withSuccessHandler(res => {
+              clearTimeout(timeoutId);
+              loadDataInFlight = false;
 
             // Valida estrutura de resposta
             const validation = validateApiResponse(res, 'getDashboardData');
@@ -398,12 +398,12 @@ function loadData(modo = 'check', opts = {}) {
                 scheduleAutoSync(AUTO_SYNC_BASE_MS);
             }
         })
-        .withFailureHandler(err => { 
-            clearTimeout(timeoutId);
-            
-            console.error("Erro Crítico:", err);
-            loadDataInFlight = false;
-            if(icon) icon.classList.remove('rotating');
+          .withFailureHandler(err => { 
+              clearTimeout(timeoutId);
+              
+              console.error("Erro Crítico:", err);
+              loadDataInFlight = false;
+              if(icon) icon.classList.remove('rotating');
             if(modo === 'force') { 
                 alert('Erro: ' + err); 
                 hideGlobalLoader(); 
@@ -412,7 +412,7 @@ function loadData(modo = 'check', opts = {}) {
                 autoSyncBackoffMs = Math.min(autoSyncBackoffMs * 2, AUTO_SYNC_MAX_MS);
                 scheduleAutoSync(autoSyncBackoffMs);
             }
-          });
+            });
       if (opts && opts.syncClickup) {
           runner.syncClickupAndGetDashboard(modo);
       } else {
@@ -582,9 +582,6 @@ function applyPipeline(showLoader = true, loaderMode = 'hard') {
                 });
             }
 
-            // --- ATUALIZA OS KPIs ---
-            updateKPIs(result); 
-
             // --- FILTRO DE STATUS (ÚNICO!) ---
             if (state.filters.status !== 'ALL') {
                 result = result.filter(d => {
@@ -612,6 +609,9 @@ function applyPipeline(showLoader = true, loaderMode = 'hard') {
             if (state.filters.veiculo.size > 0) {
                 result = result.filter(d => state.filters.veiculo.has(d.veiculo));
             }
+
+            // --- ATUALIZA OS KPIs ---
+            updateKPIs(result); 
 
             // --- ORDENAÇÃO ---
             if (state.sort.key) {
@@ -939,19 +939,20 @@ function renderTable(list) {
         return;
     }
 
-    list.forEach(d => {
-        let safeId = String(d.id).trim();
-        let badgeClass = getBadgeClass(d.statusClass);
-        let barColor = getBarColor(d.statusClass);
-        const { devPct, entreguePct } = getPct(d);
-        let statusColor = getStatusColor(d.statusClass);
-        let valFmt = d.valorTotal ? d.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
-        let clickupBadge = buildClickupBadge(d, 'table');
-        
-        let telDisplay = d.tel || '--';
-        let btnCopyHtml = '';
-        if (d.tel && d.tel.length > 5) {
-            btnCopyHtml = `
+      list.forEach(d => {
+          let safeId = String(d.id).trim();
+          let badgeClass = getBadgeClass(d.statusClass);
+          let barColor = getBarColor(d.statusClass);
+          const { devPct, entreguePct } = getPct(d);
+          let statusColor = getStatusColor(d.statusClass);
+          let valFmt = d.valorTotal ? d.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
+          let clickupBadge = buildClickupBadge(d, 'table');
+          let liveStatus = buildLiveStatus(d, 'table');
+          
+          let telDisplay = d.tel || '--';
+          let btnCopyHtml = '';
+          if (d.tel && d.tel.length > 5) {
+              btnCopyHtml = `
             <button class="btn-copy-icon" onclick="copyToClipboard(event, '${d.tel}')" title="Copiar Telefone">
                 <span class="material-icons-round" style="font-size:14px;">content_copy</span>
             </button>`;
@@ -977,16 +978,17 @@ function renderTable(list) {
                     ${clickupBadge}
                 </div>
             </td>
-            <td>
-                <div style="display:flex; flex-direction:column;">
-                    <span class="tbl-motorista">${d.motorista}</span>
-                    <div class="tbl-sub-info">
-                        <span class="material-icons-round" style="font-size:12px; opacity:0.7;">call</span>
-                        <span>${telDisplay}</span>
-                        ${btnCopyHtml}
-                    </div>
-                </div>
-            </td>
+             <td>
+                  <div style="display:flex; flex-direction:column;">
+                      <span class="tbl-motorista">${d.motorista}</span>
+                      <div class="tbl-sub-info">
+                          <span class="material-icons-round" style="font-size:12px; opacity:0.7;">call</span>
+                          <span>${telDisplay}</span>
+                          ${btnCopyHtml}
+                      </div>
+                      ${liveStatus}
+                  </div>
+              </td>
             <td>
                 <div style="display:flex; flex-direction:column;">
                     <span style="font-size:0.85rem; font-weight:500;">${d.veiculo}</span>
@@ -1097,16 +1099,61 @@ function getDriverDelay(driver) {
     return Math.floor((now - arrivalTime) / 60000);
 }
 
+function getDiffMinutesFromTime(timeStr) {
+    if (!timeStr || timeStr === '--:--') return 0;
+    const parts = String(timeStr).split(':').map(Number);
+    if (parts.length < 2 || Number.isNaN(parts[0]) || Number.isNaN(parts[1])) return 0;
+    const now = new Date();
+    const t = new Date();
+    t.setHours(parts[0], parts[1], 0, 0);
+    return Math.floor((now - t) / 60000);
+}
+
+function formatMinutesToHhMm(totalMinutes) {
+    if (!totalMinutes || totalMinutes <= 0) return '0 min';
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (hours > 0) return `${hours}h ${String(mins).padStart(2, '0')}m`;
+    return `${mins} min`;
+}
+
 function buildLiveStatus(d, mode) {
-    let diffMins = getDriverDelay(d);
-    if (diffMins <= 0) return '';
-    let currentStop = d.detalhes.find(s => !s.isDone && !s.isDev && s.hora && s.hora !== '--:--');
-    if (!currentStop) return '';
-    let dangerClass = diffMins > 30 ? 'danger' : '';
-    if (mode === 'card') {
-        return `<div class="live-status ${dangerClass}"><div class="live-dot"></div><div><strong>No Cliente:</strong> ${currentStop.cliente.substring(0, 20)}<br><span style="font-weight:600">Tempo parado: ${diffMins} min</span></div></div>`;
+    if (d.status === 'OUTROS' || d.statusClass === 'secondary') return '';
+    if (d.status === 'FINALIZADO' || d.status === 'RESSALVA' || d.statusClass === 'success') return '';
+    if (!d.detalhes || d.detalhes.length === 0) return '';
+
+    const pending = d.detalhes.filter(s => !s.isDone && !s.isDev);
+    const currentStop = pending.find(s => s.hora && s.hora !== '--:--' && (!s.saida || s.saida === '--:--'));
+    const hasArrival = d.detalhes.some(s => s.hora && s.hora !== '--:--');
+
+    if (currentStop) {
+        const diffMins = getDiffMinutesFromTime(currentStop.hora);
+        if (diffMins <= 0) return '';
+        const dangerClass = diffMins > 30 ? 'danger' : '';
+        const tempoFmt = formatMinutesToHhMm(diffMins);
+        if (mode === 'card') {
+            return `<div class="live-status ${dangerClass}"><div class="live-dot"></div><div><strong>No Cliente:</strong> ${currentStop.cliente.substring(0, 20)}<br><span style="font-weight:600">Tempo parado: ${tempoFmt}</span></div></div>`;
+        }
+        return `<span class="tbl-live-info ${dangerClass}">📍 ${currentStop.cliente.substring(0, 15)}... (${tempoFmt})</span>`;
     }
-    return `<span class="tbl-live-info ${dangerClass}">📍 ${currentStop.cliente.substring(0, 15)}... (${diffMins} min)</span>`;
+
+    if (!hasArrival) {
+        if (mode === 'card') {
+            return `<div class="live-status"><div class="live-dot"></div><div><strong>Não iniciado</strong><br><span style="font-weight:600">Aguardando 1º cliente</span></div></div>`;
+        }
+        return `<span class="tbl-live-info">⏳ Não iniciado</span>`;
+    }
+
+    const lastDep = [...d.detalhes].reverse().find(s => s.saida && s.saida !== '--:--');
+    if (!lastDep) return '';
+    const transitMins = getDiffMinutesFromTime(lastDep.saida);
+    if (transitMins <= 0) return '';
+    const transitDanger = transitMins > 30 ? 'danger' : '';
+    const transitFmt = formatMinutesToHhMm(transitMins);
+    if (mode === 'card') {
+        return `<div class="live-status ${transitDanger}"><div class="live-dot"></div><div><strong>Em trânsito</strong><br><span style="font-weight:600">Tempo: ${transitFmt}</span></div></div>`;
+    }
+    return `<span class="tbl-live-info ${transitDanger}">🚚 Em trânsito (${transitFmt})</span>`;
 }
 
 function updateKPIs(data) {
