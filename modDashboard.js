@@ -503,6 +503,7 @@ function getDashboardData(modo) {
     // Payload Final
     const payload = {
       drivers: [],
+      ocorrencias: [],
       stats: { total: 0, emRota: 0, finalizados: 0, criticos: 0 },
       lastUpdate: Utilities.formatDate(new Date(), "GMT-3", "HH:mm")
     };
@@ -636,6 +637,14 @@ function getDashboardData(modo) {
     // Ordenação: Críticos primeiro
     const pesoStatus = { "CRITICO": 4, "EM_ROTA": 3, "RESSALVA": 2, "FINALIZADO": 1, "OUTROS": 0 };
     payload.drivers.sort((a,b) => pesoStatus[b.status] - pesoStatus[a.status]);
+
+    // Ocorrencias (ClickUp)
+    try {
+      payload.ocorrencias = getOcorrenciasData(ss);
+    } catch (e) {
+      console.warn("Erro ao carregar ocorrencias: " + e.message);
+      payload.ocorrencias = [];
+    }
 
     // Envolve payload com apiResponse antes de cachear
     const response = apiResponse(true, payload, null);
@@ -1159,6 +1168,80 @@ function mapDashboardCols(headers, type) {
 }
 
 // ============================================================================
+// OCORRENCIAS (CLICKUP)
+// ============================================================================
+function getOcorrenciasData(ss) {
+  const ws = ss.getSheetByName("OCORRENCIAS") || ss.getSheetByName("Ocorrencias");
+  if (!ws) return [];
+  const raw = ws.getDataRange().getValues();
+  const display = ws.getDataRange().getDisplayValues();
+  if (raw.length < 2) return [];
+
+  const headerMap = {};
+  raw[0].forEach((h, i) => {
+    headerMap[String(h || "").trim().toUpperCase()] = i;
+  });
+
+  const findCol = (names) => {
+    for (const name of names) {
+      if (headerMap.hasOwnProperty(name)) return headerMap[name];
+    }
+    return -1;
+  };
+
+  const idxId = findCol(["ID"]);
+  const idxNome = findCol(["NOME"]);
+  const idxStatus = findCol(["STATUS"]);
+  const idxStatusCor = findCol(["STATUS COR", "STATUS COLOR"]);
+  const idxUrl = findCol(["URL"]);
+  const idxCriacao = findCol(["DATA DE CRIAÇÃO", "DATA DE CRIACAO", "DATA DE CRIAÇAO"]);
+  const idxMotorista = findCol(["MOTORISTA"]);
+  const idxRota = findCol(["ROTA", "PLANO"]);
+  const idxCliente = findCol(["CLIENTE"]);
+  const idxMotivo = findCol(["MOTIVO"]);
+  const idxCausador = findCol(["CAUSADOR", "AREA", "ÁREA"]);
+  const idxValor = findCol(["VALOR"]);
+
+  const ocorrencias = [];
+
+  for (let i = 1; i < raw.length; i++) {
+    const createdRaw = idxCriacao !== -1 ? raw[i][idxCriacao] : null;
+    const createdDate = parseDateSafe(createdRaw);
+    const createdAtIso = createdDate
+      ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")
+      : "";
+    const createdAtDisplay = createdDate
+      ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm")
+      : (idxCriacao !== -1 ? String(display[i][idxCriacao] || "") : "");
+
+    ocorrencias.push({
+      id: idxId !== -1 ? raw[i][idxId] : "",
+      nome: idxNome !== -1 ? String(display[i][idxNome] || raw[i][idxNome] || "") : "",
+      status: idxStatus !== -1 ? String(display[i][idxStatus] || raw[i][idxStatus] || "") : "",
+      statusColor: idxStatusCor !== -1 ? String(display[i][idxStatusCor] || raw[i][idxStatusCor] || "") : "",
+      url: idxUrl !== -1 ? String(display[i][idxUrl] || raw[i][idxUrl] || "") : "",
+      createdAtIso: createdAtIso,
+      createdAtDisplay: createdAtDisplay,
+      motorista: idxMotorista !== -1 ? String(display[i][idxMotorista] || raw[i][idxMotorista] || "") : "",
+      rota: idxRota !== -1 ? String(display[i][idxRota] || raw[i][idxRota] || "") : "",
+      cliente: idxCliente !== -1 ? String(display[i][idxCliente] || raw[i][idxCliente] || "") : "",
+      motivo: idxMotivo !== -1 ? String(display[i][idxMotivo] || raw[i][idxMotivo] || "") : "",
+      causador: idxCausador !== -1 ? String(display[i][idxCausador] || raw[i][idxCausador] || "") : "",
+      valor: idxValor !== -1 ? raw[i][idxValor] : ""
+    });
+  }
+
+  ocorrencias.sort((a, b) => {
+    if (a.createdAtIso && b.createdAtIso) return a.createdAtIso < b.createdAtIso ? 1 : -1;
+    if (a.createdAtIso) return -1;
+    if (b.createdAtIso) return 1;
+    return 0;
+  });
+
+  return ocorrencias;
+}
+
+// ============================================================================
 // SALVAR OCORRÊNCIA
 // ============================================================================
 function salvarOcorrencia(formData) {
@@ -1333,8 +1416,6 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
-
-
 
 
 

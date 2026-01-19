@@ -4,17 +4,22 @@
 // ============================================================================
 
 // === ESTADO GERAL (SINGLE SOURCE OF TRUTH) ===
-let state = {
-    allDrivers: [],
-    filters: { unidade: new Set(), veiculo: new Set(), status: 'ALL' },
-    search: '',
-    searchTerms: [],
-    sort: { key: null, asc: true },
-    viewMode: 'grid'
-};
+  let state = {
+      allDrivers: [],
+      allOccurrences: [],
+      filters: { unidade: new Set(), veiculo: new Set(), status: 'ALL' },
+      search: '',
+      searchTerms: [],
+      sort: { key: null, asc: true },
+      viewMode: 'grid',
+      occViewMode: 'grid',
+      occSearch: '',
+      occSearchTerms: []
+  };
 
-let searchTimeout = null;
-let loadingSafetyTimer = null;
+  let searchTimeout = null;
+  let occSearchTimeout = null;
+  let loadingSafetyTimer = null;
 let loaderQuoteTimer = null;
 let initialDataLoaded = false;
 let selectedDriverId = null;
@@ -357,7 +362,8 @@ function loadData(modo = 'check', opts = {}) {
 
             // Extrai dados validados
             const data = validation.data || {};
-            let incomingDrivers = data.drivers || [];
+              let incomingDrivers = data.drivers || [];
+              let incomingOccurrences = data.ocorrencias || [];
 
             // Proteção Anti-Fantasma
             incomingDrivers.forEach(d => {
@@ -368,9 +374,10 @@ function loadData(modo = 'check', opts = {}) {
                 }
             });
 
-            state.allDrivers = incomingDrivers;
-            prepareSearchIndex(state.allDrivers);
-            saveToCache(state.allDrivers); 
+              state.allDrivers = incomingDrivers;
+              state.allOccurrences = incomingOccurrences;
+              prepareSearchIndex(state.allDrivers);
+              saveToCache(state.allDrivers); 
 
             // Define filtro padrão: do item em aberto mais antigo até hoje
             applyDefaultDateRangeForOpen(state.allDrivers);
@@ -383,7 +390,10 @@ function loadData(modo = 'check', opts = {}) {
             if(label) label.innerText = `Atualizado: ${dataFmt} às ${horaFmt}`;
 
             initialDataLoaded = true;
-            renderDashboard({ drivers: state.allDrivers, silent: (modo !== 'force') }); 
+              renderDashboard({ drivers: state.allDrivers, silent: (modo !== 'force') }); 
+              if (document.getElementById('ocorrencias-section')?.style.display !== 'none') {
+                  renderOcorrenciasSection();
+              }
             
             // Para o ícone e esconde loader
             if(icon) icon.classList.remove('rotating');
@@ -436,11 +446,8 @@ function renderDashboard(dataOpcional) {
     buildFilterOptions('unidade', 'list-unidade');
     buildFilterOptions('veiculo', 'list-veiculo');
     
-    // Atualiza o formulário de ocorrência
-    populateFormSelects(state.allDrivers);
-
-    // Desenha a tela aplicando todos os filtros
-    applyPipeline(!silent);
+      // Desenha a tela aplicando todos os filtros
+      applyPipeline(!silent);
 
     // Atualiza dashboards secundÃ¡rios
     renderDashboardsSection();
@@ -648,11 +655,11 @@ function applyPipeline(showLoader = true, loaderMode = 'hard') {
 // CONTROLES DE FILTRO
 // ============================================================================
 let isSearching = false;
-function onSearchInput() {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-        if (isSearching) return;
-        isSearching = true;
+  function onSearchInput() {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+          if (isSearching) return;
+          isSearching = true;
         const rawSearch = document.getElementById('searchInput').value || '';
         state.search = rawSearch.toLowerCase();
         state.searchTerms = state.search
@@ -661,8 +668,21 @@ function onSearchInput() {
             .filter(Boolean);
         applyPipeline(false); // Sem loader na busca
         isSearching = false;
-    }, 250);
-}
+      }, 250);
+  }
+
+  function onOccSearchInput() {
+      clearTimeout(occSearchTimeout);
+      occSearchTimeout = setTimeout(() => {
+          const rawSearch = document.getElementById('occSearchInput')?.value || '';
+          state.occSearch = rawSearch.toLowerCase();
+          state.occSearchTerms = state.occSearch
+              .split(';')
+              .map(t => t.trim())
+              .filter(Boolean);
+          renderOcorrenciasSection();
+      }, 250);
+  }
 
 function prepareSearchIndex(drivers) {
     if (!Array.isArray(drivers)) return;
@@ -1205,6 +1225,128 @@ function renderDashboardsSection() {
     renderDashUnitBars(filtered);
 }
 
+// ============================================================================
+// OCORRENCIAS
+// ============================================================================
+function renderOcorrenciasSection() {
+    const section = document.getElementById('ocorrencias-section');
+    if (!section) return;
+
+    const list = Array.isArray(state.allOccurrences) ? state.allOccurrences : [];
+    const filtered = filterOcorrencias(list);
+
+    if (state.occViewMode === 'grid') renderOcorrenciasGrid(filtered);
+    else renderOcorrenciasTable(filtered);
+}
+
+function filterOcorrencias(list) {
+    let result = list.slice();
+    if (state.occSearchTerms.length > 0) {
+        const termos = state.occSearchTerms;
+        result = result.filter(o => {
+            const base = [
+                o.nome, o.status, o.motorista, o.rota, o.cliente, o.motivo, o.causador
+            ].join(' ').toLowerCase();
+            return termos.some(t => base.includes(t));
+        });
+    }
+    return result;
+}
+
+function getOccurrenceDelayMinutes(o) {
+    if (!o || !o.createdAtIso) return 0;
+    const dt = new Date(o.createdAtIso);
+    if (Number.isNaN(dt.getTime())) return 0;
+    return Math.floor((Date.now() - dt.getTime()) / 60000);
+}
+
+function openOccurrence(url) {
+    if (!url) return;
+    window.open(url, '_blank');
+}
+
+function renderOcorrenciasGrid(list) {
+    const grid = document.getElementById('occGrid');
+    if (!grid) return;
+
+    if (list.length === 0) {
+        grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 80px 0; color: var(--text-muted);"><span class="material-icons-round" style="font-size: 4rem; opacity: 0.3; margin-bottom: 10px;">search_off</span><h3>Nenhuma ocorrência encontrada</h3><p>Tente ajustar a busca.</p></div>`;
+        return;
+    }
+
+    grid.innerHTML = '';
+
+    list.forEach(o => {
+        const delayMins = getOccurrenceDelayMinutes(o);
+        const delayFmt = formatMinutesToHhMm(delayMins);
+        const isLate = delayMins >= 30;
+        const statusText = o.status || 'ABERTA';
+        const badgeClass = isLate ? 'badge-danger' : 'badge-info';
+        const tempoClass = isLate ? 'danger' : '';
+        const meta = [o.cliente, o.motorista, o.rota].filter(Boolean).join(' • ');
+        const createdText = o.createdAtDisplay || '--';
+        const safeUrl = String(o.url || '').replace(/'/g, "\\'");
+
+        const html = `
+        <div class="card-driver" ${safeUrl ? `onclick="openOccurrence('${safeUrl}')"` : ''}>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <span class="status-badge ${badgeClass}">${statusText}</span>
+                <span class="tbl-live-info ${tempoClass}">⏱ ${delayFmt}</span>
+            </div>
+            <div style="font-weight:700; font-size:1rem; margin-top:8px;">${o.nome || 'Ocorrência'}</div>
+            ${meta ? `<div style="color:var(--text-muted); font-size:0.8rem; margin-top:6px;">${meta}</div>` : ''}
+            <div style="margin-top:10px; font-size:0.75rem; color:var(--text-muted);">${createdText}</div>
+        </div>`;
+
+        grid.innerHTML += html;
+    });
+}
+
+function renderOcorrenciasTable(list) {
+    const tbody = document.getElementById('occTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">Nenhuma ocorrência encontrada</td></tr>`;
+        return;
+    }
+
+    list.forEach(o => {
+        const delayMins = getOccurrenceDelayMinutes(o);
+        const delayFmt = formatMinutesToHhMm(delayMins);
+        const isLate = delayMins >= 30;
+        const badgeClass = isLate ? 'badge-danger' : 'badge-info';
+        const tempoClass = isLate ? 'danger' : '';
+        const statusText = o.status || 'ABERTA';
+        const createdText = o.createdAtDisplay || '--';
+        const safeUrl = String(o.url || '').replace(/'/g, "\\'");
+
+        const html = `
+        <tr ${safeUrl ? `onclick="openOccurrence('${safeUrl}')"` : ''} style="cursor: ${safeUrl ? 'pointer' : 'default'};">
+            <td><span class="status-badge ${badgeClass}">${statusText}</span></td>
+            <td style="font-weight:600;">${o.nome || 'Ocorrência'}</td>
+            <td>${o.cliente || '-'}</td>
+            <td>${o.motorista || '-'}</td>
+            <td>${o.rota || '-'}</td>
+            <td style="white-space: nowrap;">${createdText}</td>
+            <td><span class="tbl-live-info ${tempoClass}">⏱ ${delayFmt}</span></td>
+        </tr>`;
+
+        tbody.innerHTML += html;
+    });
+}
+
+function setOccView(mode) {
+    state.occViewMode = mode;
+    document.getElementById('occGrid').style.display = mode === 'grid' ? 'grid' : 'none';
+    document.getElementById('occTableView').style.display = mode === 'table' ? 'block' : 'none';
+    document.getElementById('occBtnGrid')?.classList.toggle('active', mode === 'grid');
+    document.getElementById('occBtnTable')?.classList.toggle('active', mode === 'table');
+    renderOcorrenciasSection();
+}
+
 function populateDashUnidadeOptions(drivers) {
     const unidadeEl = document.getElementById('dashUnidade');
     if (!unidadeEl) return;
@@ -1515,7 +1657,7 @@ function populateFormSelects(drivers) {
 }
 
 function switchSection(sectionId, menuItem) {
-    const sections = ['dashboard', 'occurrence', 'dashboards'];
+    const sections = ['dashboard', 'ocorrencias', 'dashboards'];
     sections.forEach(id => {
         const el = document.getElementById(id + '-section');
         if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
@@ -1523,6 +1665,7 @@ function switchSection(sectionId, menuItem) {
     document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
     if(menuItem) menuItem.classList.add('active');
     if (sectionId === 'dashboards') renderDashboardsSection();
+    if (sectionId === 'ocorrencias') renderOcorrenciasSection();
 }
 
 // ============================================================================
@@ -1717,20 +1860,6 @@ function actionClickup() {
         window.open('https://app.clickup.com/t/' + driver.clickupId, '_blank');
     } else {
         alert("⚠️ ID do ClickUp não encontrado para esta rota.");
-    }
-}
-
-function actionOcorrencia() {
-    const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
-    if (driver) {
-        switchSection('occurrence', document.querySelectorAll('.menu-item')[1]);
-        
-        setTimeout(() => {
-            const selMot = document.getElementById('formMotorista');
-            const selRota = document.getElementById('formRota');
-            if(selMot) selMot.value = driver.motorista;
-            if(selRota) selRota.value = driver.plano;
-        }, 100);
     }
 }
 
@@ -1982,24 +2111,4 @@ window.closeModal = function() {
 }
 
 // ============================================================================
-// FORMULÁRIO DE OCORRÊNCIA
-// ============================================================================
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('incidentForm');
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('submitBtn');
-            btn.disabled = true; 
-            google.script.run.withSuccessHandler(function() {
-                document.getElementById('successOverlay').classList.add('active');
-                setTimeout(() => { 
-                    document.getElementById('incidentForm').reset(); 
-                    document.getElementById('successOverlay').classList.remove('active'); 
-                    btn.disabled = false; 
-                }, 3000);
-            }).salvarOcorrencia(this);
-        });
-    }
-});
 </script>

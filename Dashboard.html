@@ -28,11 +28,6 @@
             <div class="loader-quote-author" id="loaderQuoteAuthor"></div>
         </div>
     </div>
-<div class="success-overlay" id="successOverlay">
-        <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52"><circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/><path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/></svg>
-        <div class="success-text"><h3>Registrado!</h3><p style="color: var(--text-muted);">Dados enviados.</p></div>
-    </div>
-
     <div class="modal-overlay" id="modal" onclick="if(event.target === this) closeModal()">
         <div class="modal-box">
             <div class="modal-header">
@@ -57,7 +52,7 @@
         </div>
         <ul class="menu-list">
             <li class="menu-item active" onclick="switchSection('dashboard', this)"><span class="material-icons-round menu-icon">dashboard</span> Visão Geral</li>
-            <li class="menu-item" onclick="switchSection('occurrence', this)"><span class="material-icons-round menu-icon">build_circle</span> Ocorrência</li>
+            <li class="menu-item" onclick="switchSection('ocorrencias', this)"><span class="material-icons-round menu-icon">build_circle</span> Ocorrencias</li>
             <li class="menu-item" onclick="setFilter('FINALIZADO', this); switchSection('dashboard', document.querySelector('.menu-item:first-child'))"><span class="material-icons-round menu-icon">task_alt</span> Finalizados</li>
         </ul>
     </nav>
@@ -143,29 +138,35 @@
             </div>
         </div>
 
-        <div id="occurrence-section">
-            <div class="form-container-inner">
-                <div class="form-header"><h2>Nova Ocorrência</h2><p>Preencha os dados abaixo.</p></div>
-                <form id="incidentForm">
-                    <div class="form-grid">
-                        <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">person_pin</span><select name="motorista" id="formMotorista" required><option value="" disabled selected>Selecione o Motorista</option></select></div>
-                        <div class="row-split">
-                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">alt_route</span><select name="rota" id="formRota" required><option value="" disabled selected>Rota / Plano</option></select></div>
-                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">store_mall_directory</span><select name="cliente" required><option value="" disabled selected>Cliente</option><option value="Cliente X">Cliente X</option></select></div>
-                        </div>
-                        <div class="row-split">
-                            <div class="input-wrapper"><span class="material-icons-round input-icon">event_note</span><input type="text" name="dataSaida" placeholder="Data" onfocus="(this.type='date')" onblur="(this.type='text')" required></div>
-                            <div class="input-wrapper"><span class="material-icons-round input-icon">receipt</span><input type="text" name="nfe" placeholder="NF-e" required autocomplete="off"></div>
-                        </div>
-                        <div class="row-split">
-                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">report_problem</span><select name="motivo" required><option value="" disabled selected>Motivo</option><option value="Avaria">Avaria</option><option value="Atraso">Atraso</option><option value="Falta">Falta</option></select></div>
-                            <div class="input-wrapper select-wrapper"><span class="material-icons-round input-icon">precision_manufacturing</span><select name="causador" required><option value="" disabled selected>Área</option><option value="Expedicao">Expedição</option><option value="Transporte">Transporte</option></select></div>
-                        </div>
-                        <div class="input-wrapper" style="width: 50%; min-width: 150px;"><span class="material-icons-round input-icon">attach_money</span><input type="number" step="0.01" name="valor" placeholder="Valor (R$)"></div>
-                        <div class="input-wrapper textarea"><span class="material-icons-round input-icon">description</span><textarea name="descricao" placeholder="Descrição..." rows="4" required></textarea></div>
-                        <button type="submit" class="btn-submit" id="submitBtn"><span id="btnText">Enviar Registro</span><span class="material-icons-round" id="btnIcon">send</span><div class="spinner" id="btnSpinner" style="display:none; width: 20px; height: 20px; border-width: 3px;"></div></button>
+        <div id="ocorrencias-section" style="display:none;">
+            <div class="header-bar">
+                <div class="page-title"><h1>Ocorrencias</h1><p>Ocorrencias registradas no ClickUp</p></div>
+                <div class="header-actions">
+                    <div class="search-wrapper">
+                        <span class="material-icons-round search-icon">search</span>
+                        <input type="text" id="occSearchInput" placeholder="Buscar ocorrencias..." onkeyup="onOccSearchInput()">
                     </div>
-                </form>
+                    <div class="view-toggles">
+                        <button class="view-btn active" id="occBtnGrid" onclick="setOccView('grid')"><span class="material-icons-round">grid_view</span></button>
+                        <button class="view-btn" id="occBtnTable" onclick="setOccView('table')"><span class="material-icons-round">table_rows</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-drivers" id="occGrid"></div>
+            <div class="table-container" id="occTableView" style="display:none;">
+                <table class="data-table">
+                    <tr>
+                        <th>Status</th>
+                        <th>Ocorrencia</th>
+                        <th>Cliente</th>
+                        <th>Motorista</th>
+                        <th>Rota</th>
+                        <th>Criado em</th>
+                        <th>Tempo</th>
+                    </tr>
+                    <tbody id="occTableBody"></tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -175,11 +176,6 @@
                           <button onclick="actionClickup()">
                               <span class="material-icons-round" style="color:#7b68ee;">open_in_new</span> 
                               <span>Abrir no ClickUp</span>
-                          </button>
-
-                          <button onclick="actionOcorrencia()">
-                              <span class="material-icons-round" style="color:var(--warning);">report_problem</span> 
-                              <span>Registrar Ocorrência</span>
                           </button>
 
                           <button onclick="actionAdiantamento()">
@@ -311,8 +307,6 @@ function applyPipelineAsync() {
 }
 </script>
 </html>
-
-
 
 
 

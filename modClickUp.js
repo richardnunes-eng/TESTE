@@ -22,16 +22,20 @@ const BASE_URL = "https://api.clickup.com/api/v2/list/";
 const STATUS_IGNORADOS = ["sinistro", "cancelado"];
 
 // ✅ LISTAS DO CLICKUP
-const CONFIG_LISTAS = {
-  ENTREGAS: { 
-    id: "901314444197", 
-    nomeAba: "ENTREGAS"
-  },
-  MOTORISTAS: { 
-    id: "901310964393", 
-    nomeAba: "MOTORISTAS"
-  }
-};
+  const CONFIG_LISTAS = {
+    ENTREGAS: { 
+      id: "901314444197", 
+      nomeAba: "ENTREGAS"
+    },
+    MOTORISTAS: { 
+      id: "901310964393", 
+      nomeAba: "MOTORISTAS"
+    },
+    OCORRENCIAS: {
+      id: "901314625278",
+      nomeAba: "OCORRENCIAS"
+    }
+  };
 
 const HEADER_PADRAO = [
   "ID", "Nome", "Status", "Status Cor", "URL", "Data de Criação", 
@@ -496,6 +500,7 @@ function FORCAR_RESET_CLICKUP() {
   const scriptProps = PropertiesService.getScriptProperties();
   scriptProps.setProperty("LAST_TIME_ENTREGAS", DATA_MINIMA_CLICKUP.toString());
   scriptProps.setProperty("LAST_TIME_MOTORISTAS", DATA_MINIMA_CLICKUP.toString());
+  scriptProps.setProperty("LAST_TIME_OCORRENCIAS", DATA_MINIMA_CLICKUP.toString());
   console.log("✅ Reset concluído! Execute ExecutarIntegracaoMestre() agora.");
 }
 
@@ -515,6 +520,15 @@ function SyncMotoristas() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scriptProps = PropertiesService.getScriptProperties();
   sincronizarLista(ss, scriptProps, CONFIG_LISTAS.MOTORISTAS);
+}
+
+/**
+ * Sync apenas OCORRENCIAS
+ */
+function SyncOcorrencias() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const scriptProps = PropertiesService.getScriptProperties();
+  sincronizarLista(ss, scriptProps, CONFIG_LISTAS.OCORRENCIAS);
 }
 
 /**
