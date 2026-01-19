@@ -314,95 +314,107 @@ function processarTarefa(task, camposMap, nomeAba) {
 // SALVAR NA PLANILHA (MODO SEGURO)
 // ============================================================================
 function salvarNaPlanilha(ss, nomeAba, listaFinal, camposNovos, linhasOriginais) {
-  let ws = ss.getSheetByName(nomeAba);
-  
-  // Criar aba se não existir
-  if (!ws) {
-    ws = ss.insertSheet(nomeAba);
-    ws.getRange(1, 1, 1, HEADER_PADRAO.length).setValues([HEADER_PADRAO]).setFontWeight("bold");
-  }
-  
-  // Montar headers
-  let headers = [];
-  if (ws.getLastColumn() > 0) {
-    headers = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
-  } else {
-    headers = [...HEADER_PADRAO];
-    ws.getRange(1, 1, 1, HEADER_PADRAO.length).setValues([HEADER_PADRAO]);
-  }
-  
-  const headerMap = {};
-  headers.forEach((h, i) => headerMap[String(h).trim()] = i);
-  
-  // Adicionar colunas novas dos custom fields
-  const colunasNovas = [];
-  camposNovos.forEach((info, id) => {
-    if (!headerMap.hasOwnProperty(info.name)) {
-      colunasNovas.push(info.name);
-      headerMap[info.name] = headers.length + colunasNovas.length - 1;
-    }
-  });
-  
-  // Adicionar colunas de dados que não estão no header
-  if (listaFinal.length > 0) {
-    Object.keys(listaFinal[0]).forEach(k => {
-      if (!headerMap.hasOwnProperty(k) && !colunasNovas.includes(k)) {
-        colunasNovas.push(k);
-        headerMap[k] = headers.length + colunasNovas.length - 1;
-      }
-    });
-  }
-  
-  // Escrever novas colunas no header
-  if (colunasNovas.length > 0) {
-    ws.getRange(1, headers.length + 1, 1, colunasNovas.length)
-      .setValues([colunasNovas])
-      .setFontWeight("bold");
-    headers = [...headers, ...colunasNovas];
-  }
-  
-  // Montar matriz de dados
-  if (listaFinal.length === 0) {
-    console.warn("Lista vazia - nada a salvar");
-    return;
-  }
-  
-  const matriz = listaFinal.map(item => {
-    const row = new Array(headers.length).fill("");
-    headers.forEach((h, i) => {
-      const val = item[h];
-      if (val !== undefined && val !== null) row[i] = val;
-    });
-    return row;
-  });
-  
-  // Escrever dados
-  const numCols = headers.length;
-  const numRows = matriz.length;
-  
-  ws.getRange(2, 1, numRows, numCols).setValues(matriz);
-  
-  // Limpar linhas excedentes (com proteção)
-  const totalLinhas = ws.getMaxRows();
-  const linhasExcedentes = totalLinhas - numRows - 1;
-  
-  if (linhasExcedentes > 0) {
-    const percentual = linhasExcedentes / Math.max(linhasOriginais, 1);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let ws = ss.getSheetByName(nomeAba);
     
-    if (percentual <= 0.15 || linhasOriginais === 0) {
-      try {
-        ws.getRange(numRows + 2, 1, linhasExcedentes, ws.getMaxColumns()).clearContent();
-      } catch(e) {}
-    } else {
-      console.warn(`⚠️ ${linhasExcedentes} linhas órfãs (${Math.round(percentual*100)}%) - não limpando`);
+    // Criar aba se nao existir
+    if (!ws) {
+      ws = ss.insertSheet(nomeAba);
+      ws.getRange(1, 1, 1, HEADER_PADRAO.length).setValues([HEADER_PADRAO]).setFontWeight('bold');
+    }
+    
+    try {
+      // Montar headers
+      let headers = [];
+      if (ws.getLastColumn() > 0) {
+        headers = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
+      } else {
+        headers = [...HEADER_PADRAO];
+        ws.getRange(1, 1, 1, HEADER_PADRAO.length).setValues([HEADER_PADRAO]);
+      }
+      
+      const headerMap = {};
+      headers.forEach((h, i) => headerMap[String(h).trim()] = i);
+      
+      // Adicionar colunas novas dos custom fields
+      const colunasNovas = [];
+      camposNovos.forEach((info, id) => {
+        if (!headerMap.hasOwnProperty(info.name)) {
+          colunasNovas.push(info.name);
+          headerMap[info.name] = headers.length + colunasNovas.length - 1;
+        }
+      });
+      
+      // Adicionar colunas de dados que nao estao no header
+      if (listaFinal.length > 0) {
+        Object.keys(listaFinal[0]).forEach(k => {
+          if (!headerMap.hasOwnProperty(k) && !colunasNovas.includes(k)) {
+            colunasNovas.push(k);
+            headerMap[k] = headers.length + colunasNovas.length - 1;
+          }
+        });
+      }
+      
+      // Escrever novas colunas no header
+      if (colunasNovas.length > 0) {
+        ws.getRange(1, headers.length + 1, 1, colunasNovas.length)
+          .setValues([colunasNovas])
+          .setFontWeight('bold');
+        headers = [...headers, ...colunasNovas];
+      }
+      
+      // Montar matriz de dados
+      if (listaFinal.length === 0) {
+        console.warn('Lista vazia - nada a salvar');
+        return;
+      }
+      
+      const matriz = listaFinal.map(item => {
+        const row = new Array(headers.length).fill('');
+        headers.forEach((h, i) => {
+          const val = item[h];
+          if (val !== undefined && val !== null) row[i] = val;
+        });
+        return row;
+      });
+      
+      // Escrever dados
+      const numCols = headers.length;
+      const numRows = matriz.length;
+      
+      ws.getRange(2, 1, numRows, numCols).setValues(matriz);
+      
+      // Limpar linhas excedentes (com protecao)
+      const totalLinhas = ws.getMaxRows();
+      const linhasExcedentes = totalLinhas - numRows - 1;
+      
+      if (linhasExcedentes > 0) {
+        const percentual = linhasExcedentes / Math.max(linhasOriginais, 1);
+        
+        if (percentual <= 0.15 || linhasOriginais === 0) {
+          try {
+            ws.getRange(numRows + 2, 1, linhasExcedentes, ws.getMaxColumns()).clearContent();
+          } catch (e) {}
+        } else {
+          console.warn(`?? ${linhasExcedentes} linhas orfas (${Math.round(percentual * 100)}%) - nao limpando`);
+        }
+      }
+      
+      // Formatacao
+      ws.getRange(1, 1, 1, numCols).setFontWeight('bold').setBackground('#f3f3f3');
+      ws.setFrozenRows(1);
+      
+      SpreadsheetApp.flush();
+      return;
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      if (attempt == 0 && /Sheet\s+\d+\s+not\s+found/i.test(msg)) {
+        ss = SpreadsheetApp.openById(ss.getId());
+        continue;
+      }
+      throw e;
     }
   }
-  
-  // Formatação
-  ws.getRange(1, 1, 1, numCols).setFontWeight("bold").setBackground("#f3f3f3");
-  ws.setFrozenRows(1);
-  
-  SpreadsheetApp.flush();
 }
 
 // ============================================================================
@@ -600,3 +612,5 @@ function DEBUG_ContarTarefas() {
     console.log(`Total de tarefas: ${total}`);
   }
 }
+
+
