@@ -195,6 +195,12 @@
                 <input type="date" id="occDateEnd" class="date-input-clean">
             </div>
 
+            <div class="occ-progress-row" style="display:flex; align-items:center; gap:10px; padding:8px 0;">
+                <span id="occProgressText" style="font-size:0.9rem; color:var(--text-muted);">Aguardando carregamento...</span>
+                <span id="occErrorText" style="font-size:0.9rem; color:var(--danger); display:none;"></span>
+                <button class="btn-export" id="occRetryBtn" onclick="retryOcorrencias()" style="margin-left:auto; display:none;">Tentar novamente</button>
+            </div>
+
             <div class="grid-drivers" id="occGrid"></div>
             <div class="table-container" id="occTableView" style="display:none;">
                 <table class="data-table">
@@ -210,9 +216,6 @@
                     </tr>
                     <tbody id="occTableBody"></tbody>
                 </table>
-            </div>
-            <div style="display:flex; justify-content:center; margin: 20px 0;">
-                <button class="btn-export" id="occLoadMoreBtn" onclick="loadMoreOcorrencias()" style="display:none;">Carregar mais</button>
             </div>
         </div>
     </div>
@@ -353,6 +356,4 @@ function applyPipelineAsync() {
 }
 </script>
 </html>
-
-
 

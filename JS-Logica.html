@@ -36,8 +36,12 @@ let selectedDriverId = null;
 let dashboardsInitialized = false;
 let ocorrenciasInitialized = false;
 let occLoadInFlight = false;
-let occPage = 0;
-let occHasMore = false;
+let occCursor = 2;
+let occPageSize = 100;
+let occAccumulator = [];
+let occTotalRows = 0;
+let occDone = false;
+let occLoadError = null;
 const CLICKUP_STATUS_OPTIONS = [
     "EM ROTA",
     "AGUARDANDO DESCARGA",
@@ -1271,61 +1275,111 @@ function renderOcorrenciasSection() {
     if (state.occViewMode === 'grid') renderOcorrenciasGrid(ordered);
     else renderOcorrenciasTable(ordered);
 
-    const loadMoreBtn = document.getElementById('occLoadMoreBtn');
-    if (loadMoreBtn) {
-        loadMoreBtn.style.display = occHasMore ? 'inline-flex' : 'none';
-        loadMoreBtn.disabled = occLoadInFlight;
-    }
 }
 
 function loadOcorrenciasData(reset = true) {
     if (occLoadInFlight) return;
+    if (reset) {
+        occCursor = 2;
+        occAccumulator = [];
+        occTotalRows = 0;
+        occDone = false;
+        state.allOccurrences = [];
+        occLoadError = null;
+        updateOcorrenciasProgress();
+    }
     occLoadInFlight = true;
     showGlobalLoader('Carregando ocorrencias...', 'soft');
-    if (reset) {
-        occPage = 0;
-        occHasMore = false;
-    }
     google.script.run
-        .withSuccessHandler(res => {
-            occLoadInFlight = false;
-            hideGlobalLoader();
-
-            const safeRes = (res && typeof res === 'object')
-                ? res
-                : { ok: false, data: null, error: { message: 'Resposta vazia do servidor', needsAuth: false }, ts: new Date().toISOString() };
-
-            const validation = validateApiResponse(safeRes, 'getOcorrenciasData');
-            if (!validation.valid) {
-                console.error('Erro Ocorrencias:', validation.error);
-                if (validation.needsAuth) {
-                    handleNeedsAuth(validation.error);
-                    return;
-                }
-                showToast('Erro ao carregar ocorrencias', 'error');
-                return;
-            }
-
-            const data = validation.data || {};
-            const incoming = data.ocorrencias || [];
-            if (reset) state.allOccurrences = incoming;
-            else state.allOccurrences = (state.allOccurrences || []).concat(incoming);
-            occHasMore = Boolean(data.hasMore);
-            if (data.nextPage !== undefined) occPage = data.nextPage;
-            renderOcorrenciasSection();
-        })
-        .withFailureHandler(err => {
-            occLoadInFlight = false;
-            hideGlobalLoader();
-            console.error('Erro Ocorrencias:', err);
-            showToast('Erro ao carregar ocorrencias', 'error');
-        })
-        .getOcorrenciasDataPageApi(occPage, 100);
+        .withSuccessHandler(handleOcorrenciasPage)
+        .withFailureHandler(handleOcorrenciasFailure)
+        .getOcorrenciasPageApi(occPageSize, occCursor);
 }
 
 function loadMoreOcorrencias() {
-    if (occLoadInFlight || !occHasMore) return;
+    if (occLoadInFlight || occDone) return;
+    occLoadError = null;
     loadOcorrenciasData(false);
+}
+
+function handleOcorrenciasPage(res) {
+    occLoadInFlight = false;
+    hideGlobalLoader();
+
+    const safeRes = (res && typeof res === 'object')
+        ? res
+        : { ok: false, data: null, error: { message: 'Resposta vazia do servidor', needsAuth: false }, ts: new Date().toISOString() };
+
+    const validation = validateApiResponse(safeRes, 'getOcorrenciasPageApi');
+    if (!validation.valid) {
+        console.error('Erro Ocorrencias:', validation.error);
+        occLoadError = validation.error || 'Erro ao carregar ocorrencias';
+        if (validation.needsAuth) {
+            handleNeedsAuth(validation.error);
+            return;
+        }
+        updateOcorrenciasProgress();
+        showToast('Erro ao carregar ocorrencias', 'error');
+        return;
+    }
+
+    const data = validation.data || {};
+    const incoming = Array.isArray(data.items) ? data.items : [];
+    occCursor = data.nextCursor || null;
+    occDone = data.done || !occCursor;
+    occTotalRows = data.totalRows || occTotalRows || 0;
+    occAccumulator = occAccumulator.concat(incoming);
+    state.allOccurrences = [...occAccumulator];
+    updateOcorrenciasProgress();
+    renderOcorrenciasSection();
+
+    if (!occDone) {
+        setTimeout(() => loadOcorrenciasData(false), 0);
+    }
+}
+
+function handleOcorrenciasFailure(err) {
+    occLoadInFlight = false;
+    hideGlobalLoader();
+    console.error('Erro Ocorrencias:', err);
+    occLoadError = err && err.message ? err.message : 'Erro ao carregar ocorrencias';
+    updateOcorrenciasProgress();
+    showToast('Erro ao carregar ocorrencias', 'error');
+}
+
+function retryOcorrencias() {
+    if (occLoadInFlight) return;
+    occLoadError = null;
+    updateOcorrenciasProgress();
+    loadOcorrenciasData(false);
+}
+
+function updateOcorrenciasProgress() {
+    const progressEl = document.getElementById('occProgressText');
+    const errorEl = document.getElementById('occErrorText');
+    const retryBtn = document.getElementById('occRetryBtn');
+    const loaded = occAccumulator.length;
+    const total = occTotalRows || 0;
+    if (progressEl) {
+        if (total > 0) {
+            progressEl.textContent = `Carregadas ${loaded} de ${total} ocorrências`;
+        } else if (loaded === 0) {
+            progressEl.textContent = 'Aguardando carregamento...';
+        } else {
+            progressEl.textContent = `Carregadas ${loaded} ocorrências`;
+        }
+    }
+    if (errorEl) {
+        if (occLoadError) {
+            errorEl.textContent = occLoadError;
+            errorEl.style.display = 'inline';
+        } else {
+            errorEl.style.display = 'none';
+        }
+    }
+    if (retryBtn) {
+        retryBtn.style.display = occLoadError ? 'inline-flex' : 'none';
+    }
 }
 
 function filterOcorrencias(list) {
@@ -1334,7 +1388,7 @@ function filterOcorrencias(list) {
         const termos = state.occSearchTerms;
         result = result.filter(o => {
             const base = [
-                o.nome, o.status, o.motorista, o.rota, o.cliente, o.motivo, o.causador, o.unidade, o.texto
+                o.nome, o.status, o.motorista, o.rota, o.cliente, o.motivo, o.causador, o.unidade
             ].join(' ').toLowerCase();
             return termos.some(t => base.includes(t));
         });

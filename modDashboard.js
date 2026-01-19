@@ -1527,38 +1527,134 @@ function getOcorrenciasData(ss, maxRows) {
   });
 
   console.log('[getOcorrenciasData] Total de ocorrencias processadas:', ocorrencias.length);
-  return ocorrencias;
-}
+    return ocorrencias;
+  }
+
+  function makeOcorrenciasHeaderMap(headerRow) {
+    const map = {};
+    headerRow.forEach((h, i) => {
+      const key = String(h || "").trim().toUpperCase();
+      if (key) map[key] = i;
+    });
+    return map;
+  }
+
+  function findCol(map, names) {
+    for (const name of names) {
+      const key = String(name || "").trim().toUpperCase();
+      if (key && map.hasOwnProperty(key)) return map[key];
+    }
+    return -1;
+  }
+
+  function normalizeText(value, limit = 400) {
+    if (value === undefined || value === null) return "";
+    return String(value).trim().substring(0, limit);
+  }
+
+  function buildOcorrenciasFromValues(raw, display, headerRow) {
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+    const headerMap = makeOcorrenciasHeaderMap(headerRow);
+    const idx = {
+      id: findCol(headerMap, ["ID"]),
+      nome: findCol(headerMap, ["NOME"]),
+      status: findCol(headerMap, ["STATUS"]),
+      statusColor: findCol(headerMap, ["STATUS COR", "STATUS COLOR"]),
+      url: findCol(headerMap, ["URL"]),
+      created: findCol(headerMap, ["DATA DE CRIAÇÃO", "DATA DE CRIACAO", "DATA DE CRIAÇÎÇŸO"]),
+      closed: findCol(headerMap, ["DATA DE FECHAMENTO", "DATA DE FECHAMENTO"]),
+      motorista: findCol(headerMap, ["MOTORISTA"]),
+      rota: findCol(headerMap, ["ROTA", "PLANO"]),
+      unidade: findCol(headerMap, ["UNIDADE"]),
+      veiculo: findCol(headerMap, ["VEÍCULO", "VEICULO", "VEÇ?CULO"]),
+      cliente: findCol(headerMap, ["NOME CLIENTE", "CLIENTE"]),
+      motivo: findCol(headerMap, ["MOTIVO DA OCORRÊNCIA", "MOTIVO", "MOTIVO DA OCORRENCIA"]),
+      causador: findCol(headerMap, ["CAUSADOR", "ÁREA", "AREA"]),
+      valor: findCol(headerMap, ["VALOR", "VALOR NF"])
+    };
+
+    return raw.map((row, index) => {
+      const disp = Array.isArray(display[index]) ? display[index] : [];
+      const createdRaw = idx.created !== -1 ? row[idx.created] : null;
+      const createdDate = parseDateSafe(createdRaw);
+      const closedRaw = idx.closed !== -1 ? row[idx.closed] : null;
+      const closedDate = parseDateSafe(closedRaw);
+      return {
+        id: idx.id !== -1 ? normalizeText(row[idx.id]) : "",
+        nome: idx.nome !== -1 ? normalizeText(disp[idx.nome] || row[idx.nome]) : "",
+        status: idx.status !== -1 ? normalizeText(disp[idx.status] || row[idx.status]) : "",
+        statusColor: idx.statusColor !== -1 ? normalizeText(disp[idx.statusColor] || row[idx.statusColor]) : "",
+        url: idx.url !== -1 ? normalizeText(disp[idx.url] || row[idx.url]) : "",
+        createdAtIso: createdDate ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss") : "",
+        createdAtDisplay: createdDate ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm") : normalizeText(disp[idx.created] || row[idx.created]),
+        closedAtIso: closedDate ? Utilities.formatDate(closedDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss") : "",
+        closedAtDisplay: closedDate ? Utilities.formatDate(closedDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm") : normalizeText(disp[idx.closed] || row[idx.closed]),
+        motorista: idx.motorista !== -1 ? normalizeText(disp[idx.motorista] || row[idx.motorista]) : "",
+        rota: idx.rota !== -1 ? normalizeText(disp[idx.rota] || row[idx.rota]) : "",
+        unidade: idx.unidade !== -1 ? normalizeText(disp[idx.unidade] || row[idx.unidade]) : "",
+        veiculo: idx.veiculo !== -1 ? normalizeText(disp[idx.veiculo] || row[idx.veiculo]) : "",
+        cliente: idx.cliente !== -1 ? normalizeText(disp[idx.cliente] || row[idx.cliente]) : "",
+        motivo: idx.motivo !== -1 ? normalizeText(disp[idx.motivo] || row[idx.motivo]) : "",
+        causador: idx.causador !== -1 ? normalizeText(disp[idx.causador] || row[idx.causador]) : "",
+        valor: idx.valor !== -1 ? row[idx.valor] : ""
+      };
+    });
+  }
 
 function getOcorrenciasDataApi() {
-  // ✅ LOG ABSOLUTO - Primeira coisa executada
-  try {
-    Logger.log('[getOcorrenciasDataApi] INICIO ABSOLUTO');
-    console.log('[getOcorrenciasDataApi] INICIO ABSOLUTO');
-  } catch(e) {}
-
-  // ✅ VERIFICAÇÃO DE AUTENTICAÇÃO
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
-    console.warn('[getOcorrenciasDataApi] Falha na autenticacao:', authProbe.message);
     return apiResponse(false, null, {
       message: authProbe.message,
       needsAuth: authProbe.needsAuth
     });
   }
-
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ocorrencias = getOcorrenciasData(ss, 200) || [];
+    return apiResponse(true, { ocorrencias: ocorrencias.slice(0, 200) }, null);
+  } catch (e) {
+    const needsAuth = isAuthError(e);
+    return apiResponse(false, null, {
+      message: needsAuth ? 'Autorize o app para continuar.' : e.message,
+      needsAuth: needsAuth
+    });
+  }
+}
 
-    // ✅ GARANTE QUE getOcorrenciasData SEMPRE RETORNA ARRAY
-    const ocorrenciasRaw = getOcorrenciasData(ss, 200);
+function getOcorrenciasPageApi(pageSize, cursor) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
+  }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ws = ss.getSheetByName('OCORRENCIAS') || ss.getSheetByName('Ocorrencias');
+    if (!ws) {
+      return apiResponse(true, { items: [], nextCursor: null, done: true, totalRows: 0 }, null);
+    }
+    const lastRow = ws.getLastRow();
+    const lastCol = ws.getLastColumn();
+    const totalRows = Math.max(0, lastRow - 1);
+    if (lastRow < 2 || lastCol < 1) {
+      return apiResponse(true, { items: [], nextCursor: null, done: true, totalRows }, null);
+    }
 
-    // ✅ PROTEÇÃO: Se retornar null/undefined, converte para array vazio
-    const ocorrenciasSafe = Array.isArray(ocorrenciasRaw) ? ocorrenciasRaw : [];
-    console.log('[getOcorrenciasDataApi] ocorrenciasRaw length:', ocorrenciasSafe.length);
+    const size = Math.max(1, Math.min(parseInt(pageSize || 200, 10), 500));
+    const startRow = Math.max(2, parseInt(cursor || 2, 10));
+    if (startRow > lastRow) {
+      return apiResponse(true, { items: [], nextCursor: null, done: true, totalRows }, null);
+    }
 
-    const limit = 200;
-    const ocorrencias = ocorrenciasSafe.slice(0, limit).map(o => ({
+    const numRows = Math.min(size, lastRow - startRow + 1);
+    const raw = ws.getRange(startRow, 1, numRows, lastCol).getValues();
+    const display = ws.getRange(startRow, 1, numRows, lastCol).getDisplayValues();
+    const headerRow = ws.getRange(1, 1, 1, lastCol).getValues()[0];
+    const itemsRaw = buildOcorrenciasFromValues(raw, display, headerRow);
+    const items = itemsRaw.map(o => ({
       id: o.id,
       nome: o.nome,
       status: o.status,
@@ -1578,67 +1674,28 @@ function getOcorrenciasDataApi() {
       valor: o.valor
     }));
 
-    console.log('[getOcorrenciasDataApi] Retornando', ocorrencias.length, 'ocorrencias');
-
-    // ✅ SEMPRE RETORNA apiResponse com estrutura correta
-    return apiResponse(true, { ocorrencias }, null);
-
+    const nextCursor = (startRow + numRows <= lastRow) ? startRow + numRows : null;
+    const done = !nextCursor;
+    return apiResponse(true, {
+      items: items,
+      nextCursor: nextCursor,
+      done: done,
+      totalRows: totalRows
+    }, null);
   } catch (e) {
-    console.error('[getOcorrenciasDataApi] Erro:', e.message);
     const needsAuth = isAuthError(e);
-
-    // ✅ SEMPRE RETORNA apiResponse mesmo em caso de erro
     return apiResponse(false, null, {
-      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      message: needsAuth ? 'Autorize o app para continuar.' : e.message,
       needsAuth: needsAuth
     });
   }
 }
 
 function getOcorrenciasDataPageApi(page, pageSize) {
-  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
-  if (!authProbe.ok) {
-    return apiResponse(false, null, {
-      message: authProbe.message,
-      needsAuth: authProbe.needsAuth
-    });
-  }
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const p = Math.max(0, parseInt(page || 0, 10));
-    const size = Math.max(1, Math.min(parseInt(pageSize || 100, 10), 100));
-    const maxRows = (p + 1) * size;
-    const ocorrenciasRaw = getOcorrenciasData(ss, maxRows) || [];
-    const start = p * size;
-    const slice = ocorrenciasRaw.slice(start, start + size);
-    const ocorrencias = slice.map(o => ({
-      id: o.id,
-      nome: o.nome,
-      status: o.status,
-      statusColor: o.statusColor,
-      url: o.url,
-      createdAtIso: o.createdAtIso,
-      createdAtDisplay: o.createdAtDisplay,
-      closedAtIso: o.closedAtIso,
-      closedAtDisplay: o.closedAtDisplay,
-      motorista: o.motorista,
-      rota: o.rota,
-      unidade: o.unidade,
-      veiculo: o.veiculo,
-      cliente: o.cliente,
-      motivo: o.motivo,
-      causador: o.causador,
-      valor: o.valor
-    }));
-    const hasMore = ocorrenciasRaw.length > (start + slice.length);
-    return apiResponse(true, { ocorrencias, hasMore, nextPage: p + 1 }, null);
-  } catch (e) {
-    const needsAuth = isAuthError(e);
-    return apiResponse(false, null, {
-      message: needsAuth ? "Autorize o app para continuar." : e.message,
-      needsAuth: needsAuth
-    });
-  }
+  const size = Math.max(1, Math.min(parseInt(pageSize || 100, 10), 1000));
+  const p = Math.max(0, parseInt(page || 0, 10));
+  const cursor = 2 + p * size;
+  return getOcorrenciasPageApi(size, cursor);
 }
 
 // ============================================================================
@@ -1816,3 +1873,4 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
+
