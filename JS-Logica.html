@@ -51,6 +51,45 @@ function parsePermanenciaMinutes(raw) {
 }
 
 // ============================================================================
+// VALIDAÇÃO DE RESPOSTAS DA API
+// ============================================================================
+function validateApiResponse(response, context) {
+    // Valida estrutura básica {ok, data, error, ts}
+    if (!response || typeof response !== 'object') {
+        console.error(context + ': Resposta invalida do servidor (nao e objeto)', response);
+        return {
+            valid: false,
+            error: 'Resposta vazia ou invalida do servidor'
+        };
+    }
+
+    if (!response.hasOwnProperty('ok') || !response.hasOwnProperty('ts')) {
+        console.error(context + ': Resposta sem estrutura padrao {ok, data, error, ts}', response);
+        return {
+            valid: false,
+            error: 'Formato de resposta invalido'
+        };
+    }
+
+    // Se ok=false, retorna erro
+    if (!response.ok) {
+        const errorMsg = (response.error && response.error.message) || response.error || 'Erro desconhecido';
+        const needsAuth = (response.error && response.error.needsAuth) || false;
+        return {
+            valid: false,
+            error: errorMsg,
+            needsAuth: needsAuth
+        };
+    }
+
+    // Sucesso
+    return {
+        valid: true,
+        data: response.data || null
+    };
+}
+
+// ============================================================================
 // UTILITÁRIOS DE DATA (FILTRO INICIAL)
 // ============================================================================
 function getLocalIsoDate(dateObj) {
@@ -242,22 +281,53 @@ function copyAppLink(url) {
     }
 }
 
-function renderIframeGate() {
+function attemptIframeEscape() {
+    fetchWebAppUrl((url) => {
+        const targetUrl = url || location.href;
+
+        // Tentativa 1: Redirecionar o top (pode falhar por cross-origin)
+        try {
+            if (window.top && window.top.location) {
+                window.top.location.href = targetUrl;
+                return;
+            }
+        } catch (e) {
+            console.warn('Nao foi possivel redirecionar top (cross-origin):', e);
+        }
+
+        // Tentativa 2: Abrir nova aba automaticamente
+        try {
+            const newWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+            if (newWindow) {
+                showToast('App aberto em nova aba. Feche esta janela.', 'open_in_new');
+            }
+        } catch (e) {
+            console.warn('Nao foi possivel abrir nova aba:', e);
+        }
+
+        // Fallback: Mostrar tela com botões manuais
+        showIframeFallbackScreen(targetUrl);
+    }, () => {
+        // Se falhar ao obter URL, usar location.href
+        const targetUrl = location.href;
+        showIframeFallbackScreen(targetUrl);
+    });
+}
+
+function showIframeFallbackScreen(url) {
     showGuardScreen({
         icon: 'open_in_new',
-        title: 'Abra em nova aba',
-        message: 'Por politica do Google, este app nao pode ser exibido em iframe. Abra em uma nova aba para continuar.',
+        title: 'Redirecionando...',
+        message: 'Este app nao pode ser exibido em iframe. Se nao abriu automaticamente, clique no botao abaixo.',
         openLabel: 'Abrir em nova aba',
         showRetry: false
     });
-    showToast('Este app nao roda em iframe.', 'open_in_new');
+    setGuardUrl(url);
     stopLoader();
+}
 
-    fetchWebAppUrl((url) => {
-        setGuardUrl(url);
-    }, () => {
-        setGuardUrl(location.href);
-    });
+function renderIframeGate() {
+    attemptIframeEscape();
 }
 
 function renderAuthGate(message) {
@@ -295,10 +365,19 @@ function checkAuthAndStart(showToastOnOk = false) {
     google.script.run
         .withSuccessHandler(res => {
             hideGlobalLoader();
-            if (res && res.needsAuth) {
-                handleNeedsAuth(res.message);
+
+            const validation = validateApiResponse(res, 'checkAuth');
+            if (!validation.valid) {
+                if (validation.needsAuth) {
+                    handleNeedsAuth(validation.error);
+                } else {
+                    console.error('Erro ao validar autorizacao:', validation.error);
+                    alert('Erro ao verificar autorizacao: ' + validation.error);
+                }
                 return;
             }
+
+            // Sucesso - dados em validation.data (userEmail, env, version, etc)
             if (showToastOnOk) showToast('Autorizacao confirmada.', 'check_circle');
             hideGuardScreen();
             startApp();
@@ -421,36 +500,30 @@ function loadData(modo = 'check') {
     }, 30000);
     
     google.script.run
-        .withSuccessHandler(data => {
+        .withSuccessHandler(res => {
             clearTimeout(timeoutId);
-            
-            // ✅ CORREÇÃO: Verifica se data existe antes de acessar propriedades
-            if (!data) {
-                console.error("Erro Load: Resposta vazia do servidor");
+
+            // Valida estrutura de resposta
+            const validation = validateApiResponse(res, 'getDashboardData');
+            if (!validation.valid) {
+                console.error("Erro Load:", validation.error);
                 if(icon) icon.classList.remove('rotating');
-                if(modo === 'force') { 
-                    alert("Erro: Servidor retornou resposta vazia. Tente novamente."); 
-                    hideGlobalLoader(); 
+
+                if (validation.needsAuth) {
+                    handleNeedsAuth(validation.error);
+                    hideGlobalLoader();
+                    return;
+                }
+
+                if(modo === 'force') {
+                    alert("Erro ao carregar dados: " + validation.error);
+                    hideGlobalLoader();
                 }
                 return;
             }
-            if (data.needsAuth) {
-                handleNeedsAuth(data.message || data.error);
-                if(icon) icon.classList.remove('rotating');
-                hideGlobalLoader();
-                return;
-            }
-            
-            if (data.error) { 
-                console.error("Erro Load:", data.error);
-                if(icon) icon.classList.remove('rotating');
-                if(modo === 'force') { 
-                    alert(data.error); 
-                    hideGlobalLoader(); 
-                }
-                return; 
-            }
-            
+
+            // Extrai dados validados
+            const data = validation.data || {};
             let incomingDrivers = data.drivers || [];
 
             // Proteção Anti-Fantasma
@@ -826,12 +899,21 @@ function exportCsv() {
             hideGlobalLoader();
             exportInProgress = false;
             if (btn) btn.removeAttribute('disabled');
-            if (res && (res.downloadUrl || res.url)) {
-                // Evita bloqueio de pop-up; inicia download na mesma aba.
-                window.location.href = res.downloadUrl || res.url;
+
+            const validation = validateApiResponse(res, 'exportDashboardCsv');
+            if (!validation.valid) {
+                alert('Erro ao exportar planilha: ' + validation.error);
                 return;
             }
-            alert('N\u00e3o foi poss\u00edvel gerar a planilha.');
+
+            const data = validation.data || {};
+            if (data.downloadUrl || data.url) {
+                // Evita bloqueio de pop-up; inicia download na mesma aba.
+                window.location.href = data.downloadUrl || data.url;
+                return;
+            }
+
+            alert('Nao foi possivel gerar a planilha.');
         })
         .withFailureHandler(err => {
             hideGlobalLoader();
@@ -1704,26 +1786,29 @@ function setClickupStatus(novoStatus) {
 
     google.script.run
         .withSuccessHandler((res) => {
-            if (res.success) {
-                driver.statusClickup = res.status || novoStatus;
-                driver.statusClickupColor = res.color || driver.statusClickupColor || '';
-                saveToCache(state.allDrivers);
-                applyPipeline();
-                showClickupOverlay('Status atualizado!', 'Sincronizado com sucesso no ClickUp.');
-            } else {
+            const validation = validateApiResponse(res, 'atualizarStatusClickupBackend');
+            if (!validation.valid) {
                 driver.statusClickup = prevStatus;
                 driver.statusClickupColor = prevColor;
                 saveToCache(state.allDrivers);
                 applyPipeline();
-                alert("Erro ao atualizar status: " + res.msg);
+                alert("Erro ao atualizar status: " + validation.error);
+                return;
             }
+
+            const data = validation.data || {};
+            driver.statusClickup = data.status || novoStatus;
+            driver.statusClickupColor = data.color || driver.statusClickupColor || '';
+            saveToCache(state.allDrivers);
+            applyPipeline();
+            showClickupOverlay('Status atualizado!', 'Sincronizado com sucesso no ClickUp.');
         })
-        .withFailureHandler((err) => { 
+        .withFailureHandler((err) => {
             driver.statusClickup = prevStatus;
             driver.statusClickupColor = prevColor;
             saveToCache(state.allDrivers);
             applyPipeline();
-            alert("Erro de conexão: " + err);
+            alert("Erro de conexao: " + err);
         })
         .atualizarStatusClickupBackend(driver.clickupId, novoStatus, driver.id);
 }
@@ -1791,25 +1876,27 @@ function actionFinalizar() {
 
     google.script.run
         .withSuccessHandler((res) => {
-            if (res.success) {
-                console.log("✅ Sucesso!");
-                driver.statusClickup = "Finalizada"; 
-                saveToCache(state.allDrivers);
-                addSuppression(driver.id);
-                setTimeout(() => { applyPipeline(); }, 2500); 
-                showClickupOverlay('Finalizado!', 'Sincronizado com sucesso no ClickUp.');
-            } else {
-                alert("Erro ao finalizar: " + res.msg);
-                if (cardAlert) { 
-                    cardAlert.style.display = ''; 
-                    cardAlert.style.opacity = "1"; 
+            const validation = validateApiResponse(res, 'finalizarTarefaBackend');
+            if (!validation.valid) {
+                alert("Erro ao finalizar: " + validation.error);
+                if (cardAlert) {
+                    cardAlert.style.display = '';
+                    cardAlert.style.opacity = "1";
                     cardAlert.style.transform = "scale(1)";
                 }
                 applyPipeline();
+                return;
             }
+
+            console.log("✅ Sucesso!");
+            driver.statusClickup = "Finalizada";
+            saveToCache(state.allDrivers);
+            addSuppression(driver.id);
+            setTimeout(() => { applyPipeline(); }, 2500);
+            showClickupOverlay('Finalizado!', 'Sincronizado com sucesso no ClickUp.');
         })
-        .withFailureHandler((err) => { 
-            alert("Erro de conexão: " + err);
+        .withFailureHandler((err) => {
+            alert("Erro de conexao: " + err);
             if (cardAlert) { cardAlert.style.display = ''; cardAlert.style.opacity = "1"; }
         })
         .finalizarTarefaBackend(driver.clickupId, driver.id);

@@ -5,12 +5,63 @@
  * ✅ CORREÇÃO: Chave de NFe = PLANO + CÓDIGO DO CLIENTE (simples)
  * ✅ CORREÇÃO: Valor = stop.plannedSize3 direto do GreenMile
  * ==============================================================================
+ *
+ * ==============================================================================
+ * IMPORTANTE: AUTENTICAÇÃO E DEPLOY
+ * ==============================================================================
+ *
+ * ⚠️ APPS SCRIPT WEB APP NÃO É EMBUTÍVEL COM OAUTH EM IFRAME ⚠️
+ *
+ * O Google Apps Script bloqueia OAuth em iframes por política de segurança
+ * (frame-ancestors, X-Frame-Options). Isso NÃO pode ser removido via código.
+ *
+ * SOLUÇÃO IMPLEMENTADA:
+ * 1. Detecção automática de iframe no front-end (JS-Logica.html)
+ * 2. Tentativa de escape automático redirecionando window.top
+ * 3. Fallback: abertura automática em nova aba
+ * 4. Tela de erro com botão manual apenas se tudo falhar
+ *
+ * CONFIGURAÇÃO DE DEPLOY (appsscript.json):
+ * {
+ *   "webapp": {
+ *     "executeAs": "USER_DEPLOYING",     // ✅ Executa como quem fez o deploy
+ *     "access": "ANYONE_ANONYMOUS"        // ✅ Permite acesso sem login Google
+ *   }
+ * }
+ *
+ * NOTAS DE DEPLOY:
+ * - Use "clasp push" para enviar código
+ * - Deploy via: Apps Script Editor > Deploy > New Deployment > Web App
+ * - Escolha: "Execute as: Me" e "Who has access: Anyone"
+ * - Copie a URL do Web App e distribua aos usuários
+ * - URL formato: https://script.google.com/macros/s/{SCRIPT_ID}/exec
+ *
+ * ALTERNATIVA PARA EMBED EM IFRAME:
+ * - Hospedar front-end separado (Firebase/Vercel/Cloudflare Pages)
+ * - Apps Script funciona apenas como API (doGet/doPost retornando JSON)
+ * - Usar Google Identity Services (GIS) no front-end para autenticação
+ * - Enviar token ao Apps Script para validação
+ *
+ * ==============================================================================
  */
 
 // === CONFIGURAÇÃO DAS ABAS ===
 const SHEET_MAIN = "ENTREGAS";
-const SHEET_GM = "GreenMile";  
+const SHEET_GM = "GreenMile";
 const SHEET_MOT = "MOTORISTAS";
+
+/**
+ * Wrapper padrão para todas as respostas da API
+ * Garante estrutura consistente: { ok, data, error, ts }
+ */
+function apiResponse(ok, data, error) {
+  return {
+    ok: Boolean(ok),
+    data: data || null,
+    error: error || null,
+    ts: new Date().toISOString()
+  };
+}
 
 function isAuthError(err) {
   const msg = String((err && err.message) || err || "");
@@ -32,11 +83,35 @@ function safeExecute(fn) {
 function checkAuth() {
   const result = safeExecute(() => {
     PropertiesService.getScriptProperties().getProperty("AUTH_CHECK");
-    SpreadsheetApp.getActiveSpreadsheet().getId();
-    return true;
+    const ssId = SpreadsheetApp.getActiveSpreadsheet().getId();
+
+    // Tentar obter email do usuário (pode falhar se política da organização bloquear)
+    let userEmail = "authenticated";
+    try {
+      const user = Session.getEffectiveUser();
+      if (user && user.getEmail) {
+        userEmail = user.getEmail() || "authenticated";
+      }
+    } catch (e) {
+      console.warn('Nao foi possivel obter email do usuario:', e);
+    }
+
+    return {
+      ssId: ssId,
+      userEmail: userEmail,
+      env: 'production',
+      version: '2.0'
+    };
   });
-  if (result.ok) return { ok: true };
-  return { ok: false, needsAuth: result.needsAuth, message: result.message };
+
+  if (result.ok) {
+    return apiResponse(true, result.value, null);
+  }
+
+  return apiResponse(false, null, {
+    needsAuth: result.needsAuth,
+    message: result.message
+  });
 }
 
 function getWebAppUrl() {
@@ -60,12 +135,13 @@ function include(filename) {
 function getDashboardData(modo) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
-    return {
-      error: authProbe.message,
-      needsAuth: authProbe.needsAuth,
+    return apiResponse(false, {
       drivers: [],
       stats: { total: 0, emRota: 0, finalizados: 0, criticos: 0 }
-    };
+    }, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
   }
 
   try {
@@ -109,13 +185,13 @@ function getDashboardData(modo) {
     const wsMot = ss.getSheetByName(SHEET_MOT);
 
     if (!wsMain) {
-      return { error: "Aba '" + SHEET_MAIN + "' não encontrada.", drivers: [], stats: {} };
+      return apiResponse(false, { drivers: [], stats: {} }, "Aba '" + SHEET_MAIN + "' não encontrada.");
     }
     if (!wsGM) {
-      return { error: "Aba '" + SHEET_GM + "' não encontrada.", drivers: [], stats: {} };
+      return apiResponse(false, { drivers: [], stats: {} }, "Aba '" + SHEET_GM + "' não encontrada.");
     }
     if (!wsMot) {
-      return { error: "Aba '" + SHEET_MOT + "' não encontrada.", drivers: [], stats: {} };
+      return apiResponse(false, { drivers: [], stats: {} }, "Aba '" + SHEET_MOT + "' não encontrada.");
     }
 
     // Leitura em bulk
@@ -126,7 +202,7 @@ function getDashboardData(modo) {
 
     // Verificar se tem dados
     if (dataMainRaw.length < 2) {
-      return { error: "Aba ENTREGAS está vazia.", drivers: [], stats: {} };
+      return apiResponse(false, { drivers: [], stats: {} }, "Aba ENTREGAS está vazia.");
     }
 
     const colMain = mapDashboardCols(dataMainRaw[0], 'MAIN');
@@ -134,7 +210,7 @@ function getDashboardData(modo) {
     const colMot = mapDashboardCols(dataMot[0], 'MOT');
 
     if (colMain.PLANO === -1) {
-      return { error: "Coluna PLANO não encontrada em ENTREGAS.", drivers: [], stats: {} };
+      return apiResponse(false, { drivers: [], stats: {} }, "Coluna PLANO não encontrada em ENTREGAS.");
     }
 
     // ========================================================================
@@ -501,26 +577,30 @@ function getDashboardData(modo) {
     const pesoStatus = { "CRITICO": 4, "EM_ROTA": 3, "RESSALVA": 2, "FINALIZADO": 1, "OUTROS": 0 };
     payload.drivers.sort((a,b) => pesoStatus[b.status] - pesoStatus[a.status]);
 
+    // Envolve payload com apiResponse antes de cachear
+    const response = apiResponse(true, payload, null);
+
     // Salva no cache
     try {
-      cache.put(cacheKey, JSON.stringify(payload), CACHE_DURATION);
+      cache.put(cacheKey, JSON.stringify(response), CACHE_DURATION);
     } catch(e) {
       console.warn("Cache overflow: " + e.message);
     }
 
     console.log("✅ getDashboardData: " + payload.drivers.length + " motoristas retornados");
-    return payload;
+    return response;
 
   } catch (erro) {
     console.error("❌ ERRO FATAL em getDashboardData: " + erro.message);
     console.error("Stack: " + erro.stack);
     const needsAuth = isAuthError(erro);
-    return {
-      error: needsAuth ? "Autorize o app para continuar." : "Erro ao carregar dados: " + erro.message,
-      needsAuth: needsAuth,
+    return apiResponse(false, {
       drivers: [],
       stats: { total: 0, emRota: 0, finalizados: 0, criticos: 0 }
-    };
+    }, {
+      message: needsAuth ? "Autorize o app para continuar." : "Erro ao carregar dados: " + erro.message,
+      needsAuth: needsAuth
+    });
   }
 }
 
@@ -533,7 +613,10 @@ function getDashboardData(modo) {
 function exportDashboardCsv() {
     const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
     if (!authProbe.ok) {
-        return { success: false, error: authProbe.message, needsAuth: authProbe.needsAuth };
+        return apiResponse(false, null, {
+            message: authProbe.message,
+            needsAuth: authProbe.needsAuth
+        });
     }
     try {
         Logger.log("📊 Iniciando exportação de planilha...");
@@ -541,12 +624,12 @@ function exportDashboardCsv() {
         // 1️⃣ Obtém os dados do dashboard
         const dashboardData = getDashboardData();
         
-        if (!dashboardData || !dashboardData.drivers || dashboardData.drivers.length === 0) {
+        if (!dashboardData || !dashboardData.ok || !dashboardData.data || !dashboardData.data.drivers || dashboardData.data.drivers.length === 0) {
             Logger.log("⚠️ Nenhum dado encontrado para exportar");
-            return { error: "Nenhum dado disponível para exportação." };
+            return apiResponse(false, null, "Nenhum dado disponível para exportação.");
         }
-        
-        const drivers = dashboardData.drivers;
+
+        const drivers = dashboardData.data.drivers;
         Logger.log(`✅ ${drivers.length} rotas encontradas`);
         
         // 2️⃣ Cria nova planilha
@@ -683,26 +766,24 @@ function exportDashboardCsv() {
         const url = ss.getUrl();
         const downloadUrl = `https://docs.google.com/spreadsheets/d/${ss.getId()}/export?format=xlsx`;
         Logger.log(`✅ Exportação concluída: ${url}`);
-        
-        return { 
-            success: true,
+
+        return apiResponse(true, {
             url: url,
             downloadUrl: downloadUrl,
             fileName: nomePlanilha,
             rowCount: rows.length
-        };
-        
+        }, null);
+
     } catch (error) {
         Logger.log(`❌ Erro na exportação: ${error.toString()}`);
         Logger.log(`Stack: ${error.stack}`);
-        
+
         const needsAuth = isAuthError(error);
 
-        return { 
-            success: false,
-            error: needsAuth ? "Autorize o app para continuar." : `Erro ao gerar planilha: ${error.toString()}`,
+        return apiResponse(false, null, {
+            message: needsAuth ? "Autorize o app para continuar." : `Erro ao gerar planilha: ${error.toString()}`,
             needsAuth: needsAuth
-        };
+        });
     }
 }
 
@@ -1023,20 +1104,26 @@ function mapDashboardCols(headers, type) {
 function salvarOcorrencia(formData) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
-    return { success: false, message: authProbe.message, needsAuth: authProbe.needsAuth };
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
   }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let ws = ss.getSheetByName("Ocorrencias"); 
-    if (!ws) { 
-      ws = ss.insertSheet("Ocorrencias"); 
-      ws.appendRow(["DATA", "MOTORISTA", "ROTA", "CLIENTE", "DATA SAIDA", "NFE", "MOTIVO", "CAUSADOR", "VALOR", "DESCRICAO"]); 
+    let ws = ss.getSheetByName("Ocorrencias");
+    if (!ws) {
+      ws = ss.insertSheet("Ocorrencias");
+      ws.appendRow(["DATA", "MOTORISTA", "ROTA", "CLIENTE", "DATA SAIDA", "NFE", "MOTIVO", "CAUSADOR", "VALOR", "DESCRICAO"]);
     }
     ws.appendRow([new Date(), formData.motorista, formData.rota, formData.cliente, formData.dataSaida, formData.nfe, formData.motivo, formData.causador, formData.valor, formData.descricao]);
-    return { success: true };
-  } catch (e) { 
+    return apiResponse(true, { saved: true }, null);
+  } catch (e) {
     const needsAuth = isAuthError(e);
-    return { success: false, message: needsAuth ? "Autorize o app para continuar." : e.toString(), needsAuth: needsAuth }; 
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.toString(),
+      needsAuth: needsAuth
+    });
   }
 }
 
@@ -1046,17 +1133,20 @@ function salvarOcorrencia(formData) {
 function finalizarTarefaBackend(clickupId, rotaId) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
-    return { success: false, msg: authProbe.message, needsAuth: authProbe.needsAuth };
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
   }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const ws = ss.getSheetByName(SHEET_MAIN);
     
     // Envia para o ClickUp
-    const sucessoApi = enviarStatusParaClickup(clickupId, "Finalizada"); 
-    
+    const sucessoApi = enviarStatusParaClickup(clickupId, "Finalizada");
+
     if (!sucessoApi) {
-      return { success: false, msg: "Erro na API do ClickUp" };
+      return apiResponse(false, null, "Erro na API do ClickUp");
     }
 
     // Atualiza na planilha
@@ -1093,13 +1183,16 @@ function finalizarTarefaBackend(clickupId, rotaId) {
     try {
       CacheService.getScriptCache().remove("payload_dashboard_v6");
     } catch(e) {}
-    
-    return { success: true };
-    
+
+    return apiResponse(true, { finalized: true }, null);
+
   } catch(e) {
     console.error("Erro em finalizarTarefaBackend: " + e.message);
     const needsAuth = isAuthError(e);
-    return { success: false, msg: needsAuth ? "Autorize o app para continuar." : e.message, needsAuth: needsAuth };
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
   }
 }
 
@@ -1109,19 +1202,22 @@ function finalizarTarefaBackend(clickupId, rotaId) {
 function atualizarStatusClickupBackend(clickupId, novoStatus, rotaId) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
-    return { success: false, msg: authProbe.message, needsAuth: authProbe.needsAuth };
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
   }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const ws = ss.getSheetByName(SHEET_MAIN);
 
     if (!clickupId) {
-      return { success: false, msg: "ID do ClickUp nÃ£o informado" };
+      return apiResponse(false, null, "ID do ClickUp não informado");
     }
 
     const sucessoApi = enviarStatusParaClickup(clickupId, novoStatus);
     if (!sucessoApi) {
-      return { success: false, msg: "Erro na API do ClickUp" };
+      return apiResponse(false, null, "Erro na API do ClickUp");
     }
 
     let statusColor = mapClickupStatusColor(novoStatus);
@@ -1158,11 +1254,14 @@ function atualizarStatusClickupBackend(clickupId, novoStatus, rotaId) {
       CacheService.getScriptCache().remove("payload_dashboard_v6");
     } catch(e) {}
 
-    return { success: true, status: novoStatus, color: statusColor };
+    return apiResponse(true, { status: novoStatus, color: statusColor }, null);
   } catch(e) {
     console.error("Erro em atualizarStatusClickupBackend: " + e.message);
     const needsAuth = isAuthError(e);
-    return { success: false, msg: needsAuth ? "Autorize o app para continuar." : e.message, needsAuth: needsAuth };
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
   }
 }
 
