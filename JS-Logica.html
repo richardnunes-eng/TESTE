@@ -38,6 +38,10 @@ const LOADER_QUOTES = [
     { text: "Tudo o que temos de decidir é o que fazer com o tempo que nos é dado.", author: "J.R.R. Tolkien", book: "O Senhor dos Anéis" },
     { text: "Estratégia sem tática é o caminho mais lento para a vitória. Tática sem estratégia é o ruído antes da derrota.", author: "Sun Tzu", book: "A Arte da Guerra" }
 ];
+const inIframe = window.top !== window.self;
+let webAppUrlCache = "";
+let guardActive = false;
+let autoSyncTimerId = null;
 
 function parsePermanenciaMinutes(raw) {
     if (raw === null || raw === undefined || raw === '') return null;
@@ -93,9 +97,7 @@ function applyDefaultDateRangeForOpen(drivers, force = false) {
 // ============================================================================
 // INICIALIZAÇÃO
 // ============================================================================
-window.onload = function() {
-    initLoaderFailsafe();
-    // Tema escuro/claro
+function initThemeToggle() {
     try {
         const themeToggle = document.getElementById('themeToggle');
         if (localStorage.getItem('theme') === 'dark') { 
@@ -111,6 +113,208 @@ window.onload = function() {
             });
         }
     } catch(e){ console.warn("Erro ao inicializar tema:", e); }
+}
+
+function initGuardActions() {
+    const guard = document.getElementById('appGuard');
+    if (!guard || guard.dataset.bound === '1') return;
+    guard.dataset.bound = '1';
+
+    const openBtn = document.getElementById('guardOpenBtn');
+    const retryBtn = document.getElementById('guardRetryBtn');
+    const copyBtn = document.getElementById('guardCopyBtn');
+    const copyInputBtn = document.getElementById('guardCopyInputBtn');
+
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            openWebApp(webAppUrlCache || document.getElementById('guardUrlInput')?.value);
+        });
+    }
+    if (retryBtn) {
+        retryBtn.addEventListener('click', () => {
+            checkAuthAndStart(true);
+        });
+    }
+    if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+            copyAppLink(webAppUrlCache || document.getElementById('guardUrlInput')?.value);
+        });
+    }
+    if (copyInputBtn) {
+        copyInputBtn.addEventListener('click', () => {
+            copyAppLink(document.getElementById('guardUrlInput')?.value);
+        });
+    }
+}
+
+function showGuardScreen(config) {
+    const guard = document.getElementById('appGuard');
+    if (!guard) return;
+    guardActive = true;
+    guard.classList.add('active');
+    guard.style.display = 'flex';
+
+    const iconEl = document.getElementById('guardIcon');
+    const titleEl = document.getElementById('guardTitle');
+    const msgEl = document.getElementById('guardMessage');
+    const openBtn = document.getElementById('guardOpenBtn');
+    const retryBtn = document.getElementById('guardRetryBtn');
+    const fallback = document.getElementById('guardFallback');
+    const copyBtn = document.getElementById('guardCopyBtn');
+
+    if (iconEl) iconEl.innerText = config.icon || 'open_in_new';
+    if (titleEl) titleEl.innerText = config.title || 'Atencao';
+    if (msgEl) msgEl.innerText = config.message || '';
+    if (openBtn) {
+        openBtn.innerText = config.openLabel || 'Abrir em nova aba';
+        openBtn.disabled = true;
+    }
+    if (retryBtn) retryBtn.style.display = config.showRetry ? 'inline-flex' : 'none';
+    if (fallback) fallback.style.display = 'none';
+    if (copyBtn) copyBtn.disabled = true;
+}
+
+function hideGuardScreen() {
+    const guard = document.getElementById('appGuard');
+    guardActive = false;
+    if (guard) {
+        guard.classList.remove('active');
+        guard.style.display = 'none';
+    }
+}
+
+function setGuardUrl(url) {
+    const input = document.getElementById('guardUrlInput');
+    const fallback = document.getElementById('guardFallback');
+    const openBtn = document.getElementById('guardOpenBtn');
+    const copyBtn = document.getElementById('guardCopyBtn');
+    if (input) input.value = url || '';
+    if (fallback) fallback.style.display = url ? 'block' : 'none';
+    if (openBtn) openBtn.disabled = !url;
+    if (copyBtn) copyBtn.disabled = !url;
+}
+
+function fetchWebAppUrl(onSuccess, onFailure) {
+    if (webAppUrlCache) {
+        onSuccess(webAppUrlCache);
+        return;
+    }
+    google.script.run
+        .withSuccessHandler(url => {
+            webAppUrlCache = String(url || '');
+            if (webAppUrlCache) onSuccess(webAppUrlCache);
+            else if (onFailure) onFailure(new Error('URL vazia'));
+        })
+        .withFailureHandler(err => {
+            console.warn('Erro ao obter URL do Web App:', err);
+            if (onFailure) onFailure(err);
+        })
+        .getWebAppUrl();
+}
+
+function openWebApp(url) {
+    const target = url || '';
+    if (!target) return;
+    window.open(target, '_blank', 'noopener');
+}
+
+function copyAppLink(url) {
+    const target = url || '';
+    if (!target) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(target).then(() => {
+            showToast('Link copiado!', 'content_copy');
+        }).catch(() => {
+            showToast('Nao foi possivel copiar o link.', 'error');
+        });
+        return;
+    }
+    try {
+        const input = document.getElementById('guardUrlInput');
+        if (input) {
+            input.focus();
+            input.select();
+            document.execCommand('copy');
+            showToast('Link copiado!', 'content_copy');
+        }
+    } catch (e) {
+        console.warn('Falha ao copiar link:', e);
+    }
+}
+
+function renderIframeGate() {
+    showGuardScreen({
+        icon: 'open_in_new',
+        title: 'Abra em nova aba',
+        message: 'Por politica do Google, este app nao pode ser exibido em iframe. Abra em uma nova aba para continuar.',
+        openLabel: 'Abrir em nova aba',
+        showRetry: false
+    });
+    showToast('Este app nao roda em iframe.', 'open_in_new');
+    stopLoader();
+
+    fetchWebAppUrl((url) => {
+        setGuardUrl(url);
+    }, () => {
+        setGuardUrl(location.href);
+    });
+}
+
+function renderAuthGate(message) {
+    showGuardScreen({
+        icon: 'verified_user',
+        title: 'Autorizar o app',
+        message: message || 'Este app precisa de autorizacao para acessar seus dados. Clique em Autorizar e conclua o OAuth.',
+        openLabel: 'Autorizar',
+        showRetry: true
+    });
+    showToast('Autorizacao necessaria.', 'verified_user');
+    stopLoader();
+
+    fetchWebAppUrl((url) => {
+        setGuardUrl(url);
+    }, () => {
+        setGuardUrl(location.href);
+    });
+}
+
+function handleNeedsAuth(message) {
+    if (autoSyncTimerId) {
+        clearInterval(autoSyncTimerId);
+        autoSyncTimerId = null;
+    }
+    if (inIframe) {
+        renderIframeGate();
+        return;
+    }
+    renderAuthGate(message);
+}
+
+function checkAuthAndStart(showToastOnOk = false) {
+    showGlobalLoader('Verificando autorizacao...', 'soft');
+    google.script.run
+        .withSuccessHandler(res => {
+            hideGlobalLoader();
+            if (res && res.needsAuth) {
+                handleNeedsAuth(res.message);
+                return;
+            }
+            if (showToastOnOk) showToast('Autorizacao confirmada.', 'check_circle');
+            hideGuardScreen();
+            startApp();
+        })
+        .withFailureHandler(err => {
+            hideGlobalLoader();
+            console.warn('Falha ao verificar autorizacao:', err);
+            handleNeedsAuth('Nao foi possivel verificar a autorizacao. Tente novamente.');
+        })
+        .checkAuth();
+}
+
+let appStarted = false;
+function startApp() {
+    if (appStarted) return;
+    appStarted = true;
 
     // Filtros de data
     const dateStart = document.getElementById('dateStart');
@@ -124,14 +328,26 @@ window.onload = function() {
         dateEnd.addEventListener('keydown', handleEnter);
     }
 
-    setInterval(() => {
-        console.log("📡 Auto-Sync (5 min): Verificando relatórios...");
+    autoSyncTimerId = setInterval(() => {
+        console.log("Auto-Sync (5 min): Verificando relatorios...");
         loadData('check'); 
     }, 300000);
 
     // Carga Inicial (somente libera tela com dados do servidor)
     loadFromCache();
     loadData('check'); 
+}
+window.onload = function() {
+    initLoaderFailsafe();
+    initThemeToggle();
+    initGuardActions();
+
+    if (inIframe) {
+        renderIframeGate();
+        return;
+    }
+
+    checkAuthAndStart();
 };
 
 // ============================================================================
@@ -191,6 +407,11 @@ function loadData(modo = 'check') {
     // Ícone gira em todos os modos
     const icon = document.getElementById('refreshIcon');
     if(icon) icon.classList.add('rotating');
+    if (guardActive) {
+        if(icon) icon.classList.remove('rotating');
+        hideGlobalLoader();
+        return;
+    }
 
     // Timeout de segurança - 30s
     const timeoutId = setTimeout(() => {
@@ -211,6 +432,12 @@ function loadData(modo = 'check') {
                     alert("Erro: Servidor retornou resposta vazia. Tente novamente."); 
                     hideGlobalLoader(); 
                 }
+                return;
+            }
+            if (data.needsAuth) {
+                handleNeedsAuth(data.message || data.error);
+                if(icon) icon.classList.remove('rotating');
+                hideGlobalLoader();
                 return;
             }
             
@@ -1326,18 +1553,21 @@ window.copyToClipboard = function(event, text) {
     if (!text || text === '--' || text === 'S/ Tel') return;
 
     navigator.clipboard.writeText(text).then(() => {
-        showToast();
+        showToast('Telefone copiado!', 'content_copy');
     }).catch(err => {
         console.error('Erro ao copiar', err);
     });
 }
 
-function showToast() {
-    const x = document.getElementById("toastNotification");
-    if (x) {
-        x.className = "toast-box show";
-        setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
-    }
+function showToast(message = 'Telefone copiado!', icon = 'content_copy', duration = 3000) {
+    const toast = document.getElementById('toastNotification');
+    const iconEl = document.getElementById('toastIcon');
+    const textEl = document.getElementById('toastText');
+    if (!toast) return;
+    if (iconEl) iconEl.innerText = icon || 'info';
+    if (textEl) textEl.innerText = message || 'Notificacao';
+    toast.className = 'toast-box show';
+    setTimeout(() => { toast.className = toast.className.replace('show', ''); }, duration);
 }
 
 window.toggleStopDetails = function(id) {
@@ -1645,7 +1875,11 @@ window.renderDetailedModal = function(id) {
 
             let badgeTexto = "Previsto";
             let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);"; 
+ codex/debug-usercodeapppanel-authentication-issue-ng0iqa
             const permanenciaMinutes = parsePermanenciaMinutes(s.permanencia);
+=======
+            const permanenciaMinutes = Number.isFinite(Number(s.permanencia)) ? Number(s.permanencia) : null;
+main
             const estaFinalizado = s.isDone || permanenciaMinutes !== null;
 
             if (s.hora && s.hora.includes(':')) {
@@ -1788,3 +2022,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

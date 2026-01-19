@@ -913,7 +913,135 @@ table td {
     text-transform: uppercase;
 }
 
-/* === TOAST NOTIFICATION === */
+/* === APP GUARD === */
+.app-guard {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 60%),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.05), rgba(15, 23, 42, 0.15));
+    z-index: 1200;
+    padding: 24px;
+}
+
+.app-guard.active {
+    display: flex;
+}
+
+.app-guard::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, rgba(255, 255, 255, 0.35), transparent 60%);
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.guard-card {
+    position: relative;
+    z-index: 1;
+    width: min(560px, 92vw);
+    background: var(--card-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 22px;
+    padding: 28px;
+    text-align: center;
+    box-shadow: 0 25px 70px rgba(15, 23, 42, 0.2);
+}
+
+body.dark-mode .guard-card {
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45);
+}
+
+.guard-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--primary);
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.guard-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.5rem;
+    margin: 8px 0;
+    color: var(--text-main);
+}
+
+.guard-message {
+    color: var(--text-muted);
+    font-size: 0.98rem;
+    line-height: 1.5;
+    margin: 0 0 20px;
+}
+
+.guard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+}
+
+.guard-btn {
+    border-radius: 12px;
+    padding: 10px 16px;
+    border: 1px solid transparent;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+}
+
+.guard-btn.primary {
+    background: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 10px 24px rgba(59, 130, 246, 0.25);
+}
+
+.guard-btn.ghost {
+    background: transparent;
+    border-color: var(--input-border);
+    color: var(--text-main);
+}
+
+.guard-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.guard-fallback {
+    margin-top: 16px;
+    text-align: left;
+}
+
+.guard-field {
+    display: flex;
+    gap: 8px;
+}
+
+.guard-field input {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px dashed var(--input-border);
+    color: var(--text-main);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+}
+
+.guard-note {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+/\* === TOAST NOTIFICATION === \*/
 .toast-box {
     visibility: hidden;
     min-width: 250px;
@@ -1084,3 +1212,4 @@ table td {
 }
 
 </style>
+

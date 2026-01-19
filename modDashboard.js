@@ -12,11 +12,41 @@ const SHEET_MAIN = "ENTREGAS";
 const SHEET_GM = "GreenMile";  
 const SHEET_MOT = "MOTORISTAS";
 
+function isAuthError(err) {
+  const msg = String((err && err.message) || err || "");
+  return /authorization|perm(iss|iss)?(ion)?|not authorized|insufficient|access denied|autoriz/i.test(msg);
+}
+
+function safeExecute(fn) {
+  try {
+    return { ok: true, value: fn() };
+  } catch (err) {
+    const needsAuth = isAuthError(err);
+    const message = needsAuth
+      ? "Autorize o app para continuar."
+      : (err && err.message ? err.message : String(err));
+    return { ok: false, needsAuth, message, error: err };
+  }
+}
+
+function checkAuth() {
+  const result = safeExecute(() => {
+    PropertiesService.getScriptProperties().getProperty("AUTH_CHECK");
+    SpreadsheetApp.getActiveSpreadsheet().getId();
+    return true;
+  });
+  if (result.ok) return { ok: true };
+  return { ok: false, needsAuth: result.needsAuth, message: result.message };
+}
+
+function getWebAppUrl() {
+  return ScriptApp.getService().getUrl();
+}
+
 function doGet(e) {
   var template = HtmlService.createTemplateFromFile('Dashboard');
   return template.evaluate()
       .setTitle('THX LOG | Centro de Comando')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -28,6 +58,16 @@ function include(filename) {
  * FUNÇÃO PRINCIPAL - RETORNA DADOS DO DASHBOARD
  */
 function getDashboardData(modo) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return {
+      error: authProbe.message,
+      needsAuth: authProbe.needsAuth,
+      drivers: [],
+      stats: { total: 0, emRota: 0, finalizados: 0, criticos: 0 }
+    };
+  }
+
   try {
     const cache = CacheService.getScriptCache();
     const cacheKey = "payload_dashboard_v6";  // ✅ Nova versão do cache
@@ -474,8 +514,10 @@ function getDashboardData(modo) {
   } catch (erro) {
     console.error("❌ ERRO FATAL em getDashboardData: " + erro.message);
     console.error("Stack: " + erro.stack);
-    return { 
-      error: "Erro ao carregar dados: " + erro.message,
+    const needsAuth = isAuthError(erro);
+    return {
+      error: needsAuth ? "Autorize o app para continuar." : "Erro ao carregar dados: " + erro.message,
+      needsAuth: needsAuth,
       drivers: [],
       stats: { total: 0, emRota: 0, finalizados: 0, criticos: 0 }
     };
@@ -489,6 +531,10 @@ function getDashboardData(modo) {
  */
 
 function exportDashboardCsv() {
+    const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+    if (!authProbe.ok) {
+        return { success: false, error: authProbe.message, needsAuth: authProbe.needsAuth };
+    }
     try {
         Logger.log("📊 Iniciando exportação de planilha...");
         
@@ -650,9 +696,12 @@ function exportDashboardCsv() {
         Logger.log(`❌ Erro na exportação: ${error.toString()}`);
         Logger.log(`Stack: ${error.stack}`);
         
+        const needsAuth = isAuthError(error);
+
         return { 
             success: false,
-            error: `Erro ao gerar planilha: ${error.toString()}` 
+            error: needsAuth ? "Autorize o app para continuar." : `Erro ao gerar planilha: ${error.toString()}`,
+            needsAuth: needsAuth
         };
     }
 }
@@ -972,6 +1021,10 @@ function mapDashboardCols(headers, type) {
 // SALVAR OCORRÊNCIA
 // ============================================================================
 function salvarOcorrencia(formData) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return { success: false, message: authProbe.message, needsAuth: authProbe.needsAuth };
+  }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let ws = ss.getSheetByName("Ocorrencias"); 
@@ -982,7 +1035,8 @@ function salvarOcorrencia(formData) {
     ws.appendRow([new Date(), formData.motorista, formData.rota, formData.cliente, formData.dataSaida, formData.nfe, formData.motivo, formData.causador, formData.valor, formData.descricao]);
     return { success: true };
   } catch (e) { 
-    return { success: false, message: e.toString() }; 
+    const needsAuth = isAuthError(e);
+    return { success: false, message: needsAuth ? "Autorize o app para continuar." : e.toString(), needsAuth: needsAuth }; 
   }
 }
 
@@ -990,6 +1044,10 @@ function salvarOcorrencia(formData) {
 // FINALIZAR TAREFA NO CLICKUP
 // ============================================================================
 function finalizarTarefaBackend(clickupId, rotaId) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return { success: false, msg: authProbe.message, needsAuth: authProbe.needsAuth };
+  }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const ws = ss.getSheetByName(SHEET_MAIN);
@@ -1040,7 +1098,8 @@ function finalizarTarefaBackend(clickupId, rotaId) {
     
   } catch(e) {
     console.error("Erro em finalizarTarefaBackend: " + e.message);
-    return { success: false, msg: e.message };
+    const needsAuth = isAuthError(e);
+    return { success: false, msg: needsAuth ? "Autorize o app para continuar." : e.message, needsAuth: needsAuth };
   }
 }
 
@@ -1048,6 +1107,10 @@ function finalizarTarefaBackend(clickupId, rotaId) {
 // ATUALIZAR STATUS NO CLICKUP (GENÃ‰RICO)
 // ============================================================================
 function atualizarStatusClickupBackend(clickupId, novoStatus, rotaId) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return { success: false, msg: authProbe.message, needsAuth: authProbe.needsAuth };
+  }
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const ws = ss.getSheetByName(SHEET_MAIN);
@@ -1098,7 +1161,8 @@ function atualizarStatusClickupBackend(clickupId, novoStatus, rotaId) {
     return { success: true, status: novoStatus, color: statusColor };
   } catch(e) {
     console.error("Erro em atualizarStatusClickupBackend: " + e.message);
-    return { success: false, msg: e.message };
+    const needsAuth = isAuthError(e);
+    return { success: false, msg: needsAuth ? "Autorize o app para continuar." : e.message, needsAuth: needsAuth };
   }
 }
 
@@ -1110,3 +1174,12 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
+
+
+
+
+
+
+
+
+
