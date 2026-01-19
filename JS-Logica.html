@@ -24,7 +24,14 @@
           rota: '',
           dateStart: '',
           dateEnd: ''
-      }
+      },
+      occBuffer: [],
+      occCursor: 2,
+      occPageSize: 200,
+      occLoading: false,
+      occDone: false,
+      occTotalRows: 0,
+      occMeta: null
   };
 
   let searchTimeout = null;
@@ -35,12 +42,6 @@ let initialDataLoaded = false;
 let selectedDriverId = null;
 let dashboardsInitialized = false;
 let ocorrenciasInitialized = false;
-let occLoadInFlight = false;
-let occCursor = 2;
-let occPageSize = 100;
-let occAccumulator = [];
-let occTotalRows = 0;
-let occDone = false;
 let occLoadError = null;
 const CLICKUP_STATUS_OPTIONS = [
     "EM ROTA",
@@ -60,8 +61,11 @@ const LOADER_QUOTES = [
     { text: "Os olhos mostram a força da alma.", author: "Paulo Coelho", book: "O Alquimista" },
     { text: "Tudo o que temos de decidir é o que fazer com o tempo que nos é dado.", author: "J.R.R. Tolkien", book: "O Senhor dos Anéis" },
     { text: "Estratégia sem tática é o caminho mais lento para a vitória. Tática sem estratégia é o ruído antes da derrota.", author: "Sun Tzu", book: "A Arte da Guerra" }
-];
-  let autoSyncTimerId = null;
+  ];
+    const OCC_WINDOW_SIZE = 300;
+    const OCC_AUTO_SYNC_MS = 30000;
+    let occAutoSyncTimer = null;
+      let autoSyncTimerId = null;
   let autoSyncBackoffMs = 60000;
   let loadDataInFlight = false;
   let pendingForceReload = false;
@@ -1261,124 +1265,165 @@ function renderDashboardsSection() {
 // ============================================================================
 // OCORRENCIAS
 // ============================================================================
-function renderOcorrenciasSection() {
-    const section = document.getElementById('ocorrencias-section');
-    if (!section) return;
+  function renderOcorrenciasSection() {
+      const section = document.getElementById('ocorrencias-section');
+      if (!section) return;
 
-    const list = Array.isArray(state.allOccurrences) ? state.allOccurrences : [];
-    initOcorrenciasControls();
-    populateOcorrenciasFilters(list);
-    const filtered = filterOcorrencias(list);
-    const ordered = sortOcorrencias(filtered);
+      initOcorrenciasControls();
+      populateOcorrenciasFilters(state.occBuffer);
+      const filtered = filterOcorrencias(state.occBuffer);
+      state.allOccurrences = filtered;
+      const ordered = sortOcorrencias(filtered);
 
-    updateOcorrenciasKpis(ordered);
-    if (state.occViewMode === 'grid') renderOcorrenciasGrid(ordered);
-    else renderOcorrenciasTable(ordered);
+      updateOcorrenciasKpis(ordered);
+      const windowItems = ordered.slice(Math.max(0, ordered.length - OCC_WINDOW_SIZE));
+      if (state.occViewMode === 'grid') renderOcorrenciasGrid(windowItems);
+      else renderOcorrenciasTable(windowItems);
+  }
 
-}
+  function loadOcorrenciasData(reset = true) {
+      if (state.occLoading) return;
+      if (reset) {
+          state.occCursor = 2;
+          state.occBuffer = [];
+          state.occDone = false;
+          state.occTotalRows = 0;
+          state.occMeta = null;
+          occLoadError = null;
+          state.occPageSize = 200;
+      }
+      state.occLoading = true;
+      updateOcorrenciasProgress(0, state.occTotalRows, state.occMeta);
+      showGlobalLoader('Carregando ocorrencias...', 'soft');
+      pumpOcorrencias();
+  }
 
-function loadOcorrenciasData(reset = true) {
-    if (occLoadInFlight) return;
-    if (reset) {
-        occCursor = 2;
-        occAccumulator = [];
-        occTotalRows = 0;
-        occDone = false;
-        state.allOccurrences = [];
-        occLoadError = null;
-        updateOcorrenciasProgress();
-    }
-    occLoadInFlight = true;
-    showGlobalLoader('Carregando ocorrencias...', 'soft');
-    google.script.run
-        .withSuccessHandler(handleOcorrenciasPage)
-        .withFailureHandler(handleOcorrenciasFailure)
-        .getOcorrenciasPageApi(occPageSize, occCursor);
-}
+  function pumpOcorrencias() {
+      if (!state.occLoading) return;
+      if (state.occCursor === null) {
+          state.occLoading = false;
+          stopOcorrenciasLoader();
+          return;
+      }
 
-function loadMoreOcorrencias() {
-    if (occLoadInFlight || occDone) return;
-    occLoadError = null;
-    loadOcorrenciasData(false);
-}
+      google.script.run
+          .withSuccessHandler(res => {
+              const safeRes = (res && typeof res === 'object')
+                  ? res
+                  : { ok: false, error: { message: 'Resposta vazia do servidor' } };
+              const validation = validateApiResponse(safeRes, 'getOcorrenciasPageApi');
+              if (!validation.valid) {
+                  failOcorrencias(validation.error || 'Erro ao carregar ocorrencias');
+                  return;
+              }
 
-function handleOcorrenciasPage(res) {
-    occLoadInFlight = false;
-    hideGlobalLoader();
+              const data = validation.data || {};
+              const items = Array.isArray(data.items) ? data.items : [];
+              if (data.meta && data.meta.suggestedPageSize && data.meta.suggestedPageSize < state.occPageSize) {
+                  state.occPageSize = data.meta.suggestedPageSize;
+              }
+              state.occCursor = data.nextCursor || null;
+              state.occDone = data.done || !state.occCursor;
+              state.occTotalRows = data.totalRows || state.occTotalRows;
+              state.occMeta = data.meta || null;
 
-    const safeRes = (res && typeof res === 'object')
-        ? res
-        : { ok: false, data: null, error: { message: 'Resposta vazia do servidor', needsAuth: false }, ts: new Date().toISOString() };
+              state.occBuffer = state.occBuffer.concat(items);
+              state.allOccurrences = [...state.occBuffer];
+              updateOcorrenciasProgress(state.occBuffer.length, state.occTotalRows, state.occMeta);
+              renderOcorrenciasSection();
 
-    const validation = validateApiResponse(safeRes, 'getOcorrenciasPageApi');
-    if (!validation.valid) {
-        console.error('Erro Ocorrencias:', validation.error);
-        occLoadError = validation.error || 'Erro ao carregar ocorrencias';
-        if (validation.needsAuth) {
-            handleNeedsAuth(validation.error);
-            return;
-        }
-        updateOcorrenciasProgress();
-        showToast('Erro ao carregar ocorrencias', 'error');
-        return;
-    }
+              if (state.occDone) {
+                  state.occLoading = false;
+                  stopOcorrenciasLoader();
+                  return;
+              }
 
-    const data = validation.data || {};
-    const incoming = Array.isArray(data.items) ? data.items : [];
-    occCursor = data.nextCursor || null;
-    occDone = data.done || !occCursor;
-    occTotalRows = data.totalRows || occTotalRows || 0;
-    occAccumulator = occAccumulator.concat(incoming);
-    state.allOccurrences = [...occAccumulator];
-    updateOcorrenciasProgress();
-    renderOcorrenciasSection();
+              setTimeout(pumpOcorrencias, 50);
+          })
+          .withFailureHandler(err => {
+              failOcorrencias(err);
+          })
+          .getOcorrenciasPageApi(state.occPageSize, state.occCursor);
+  }
 
-    if (!occDone) {
-        setTimeout(() => loadOcorrenciasData(false), 0);
-    }
-}
+  function startOcorrenciasAutoSync() {
+      stopOcorrenciasAutoSync();
+      occAutoSyncTimer = setInterval(() => {
+          if (!state.occLoading) {
+              loadOcorrenciasData(true);
+          }
+      }, OCC_AUTO_SYNC_MS);
+  }
 
-function handleOcorrenciasFailure(err) {
-    occLoadInFlight = false;
-    hideGlobalLoader();
-    console.error('Erro Ocorrencias:', err);
-    occLoadError = err && err.message ? err.message : 'Erro ao carregar ocorrencias';
-    updateOcorrenciasProgress();
-    showToast('Erro ao carregar ocorrencias', 'error');
-}
+  function stopOcorrenciasAutoSync() {
+      if (occAutoSyncTimer) {
+          clearInterval(occAutoSyncTimer);
+          occAutoSyncTimer = null;
+      }
+  }
 
-function retryOcorrencias() {
-    if (occLoadInFlight) return;
-    occLoadError = null;
-    updateOcorrenciasProgress();
-    loadOcorrenciasData(false);
-}
+  function startOcorrenciasManualSync() {
+      stopOcorrenciasAutoSync();
+      loadOcorrenciasData(true);
+      startOcorrenciasAutoSync();
+  }
 
-function updateOcorrenciasProgress() {
-    const progressEl = document.getElementById('occProgressText');
-    const errorEl = document.getElementById('occErrorText');
-    const retryBtn = document.getElementById('occRetryBtn');
-    const loaded = occAccumulator.length;
-    const total = occTotalRows || 0;
-    if (progressEl) {
-        if (total > 0) {
-            progressEl.textContent = `Carregadas ${loaded} de ${total} ocorrências`;
-        } else if (loaded === 0) {
-            progressEl.textContent = 'Aguardando carregamento...';
-        } else {
-            progressEl.textContent = `Carregadas ${loaded} ocorrências`;
-        }
-    }
-    if (errorEl) {
-        if (occLoadError) {
-            errorEl.textContent = occLoadError;
-            errorEl.style.display = 'inline';
-        } else {
-            errorEl.style.display = 'none';
-        }
-    }
+  function failOcorrencias(err) {
+      state.occLoading = false;
+      state.occDone = false;
+      occLoadError = err && err.message ? err.message : String(err) || 'Erro ao carregar ocorrencias';
+      updateOcorrenciasProgress(state.occBuffer.length, state.occTotalRows, state.occMeta);
+      stopOcorrenciasLoader();
+      showToast('Erro ao carregar ocorrencias', 'error');
+      console.error('Erro Ocorrencias:', err);
+  }
+
+  function stopOcorrenciasLoader() {
+      hideGlobalLoader();
+  }
+
+  function retryOcorrencias() {
+      if (state.occLoading) return;
+      occLoadError = null;
+      loadOcorrenciasData(true);
+  }
+
+  function updateOcorrenciasProgress(loaded = state.occBuffer.length, total = state.occTotalRows, meta = state.occMeta) {
+      const progressEl = document.getElementById('occProgressText');
+      const errorEl = document.getElementById('occErrorText');
+      const retryBtn = document.getElementById('occRetryBtn');
+      if (progressEl) {
+          let text;
+          if (total > 0) {
+              const percent = Math.round((loaded / total) * 100);
+              text = `Carregadas ${loaded} de ${total} ocorrências (${percent}%)`;
+          } else if (loaded === 0 && !state.occLoading) {
+              text = 'Aguardando carregamento...';
+          } else {
+              text = `Carregadas ${loaded} ocorrências`;
+          }
+          if (meta) {
+              const parts = [];
+              if (meta.durationMs) parts.push(`${meta.durationMs}ms`);
+              if (meta.approxBytes) parts.push(`${(meta.approxBytes / 1024).toFixed(1)}KB`);
+              if (parts.length) text += ` · ${parts.join(' | ')}`;
+          }
+          progressEl.textContent = text;
+      }
+      if (errorEl) {
+          if (occLoadError) {
+              errorEl.textContent = occLoadError;
+              errorEl.style.display = 'inline';
+          } else {
+              errorEl.style.display = 'none';
+          }
+      }
     if (retryBtn) {
-        retryBtn.style.display = occLoadError ? 'inline-flex' : 'none';
+        if (occLoadError && !state.occLoading && !state.occDone) {
+            retryBtn.style.display = 'inline-flex';
+        } else {
+            retryBtn.style.display = 'none';
+        }
     }
 }
 
@@ -1646,14 +1691,14 @@ function renderOcorrenciasTable(list) {
     });
 }
 
-function setOccView(mode) {
-    state.occViewMode = mode;
-    document.getElementById('occGrid').style.display = mode === 'grid' ? 'grid' : 'none';
-    document.getElementById('occTableView').style.display = mode === 'table' ? 'block' : 'none';
-    document.getElementById('occBtnGrid')?.classList.toggle('active', mode === 'grid');
-    document.getElementById('occBtnTable')?.classList.toggle('active', mode === 'table');
-    renderOcorrenciasSection();
-}
+  function setOccView(mode) {
+      state.occViewMode = mode;
+      document.getElementById('occGrid').style.display = mode === 'grid' ? 'grid' : 'none';
+      document.getElementById('occTableView').style.display = mode === 'table' ? 'block' : 'none';
+      document.getElementById('occBtnGrid')?.classList.toggle('active', mode === 'grid');
+      document.getElementById('occBtnTable')?.classList.toggle('active', mode === 'table');
+      renderOcorrenciasSection();
+  }
 
 function populateDashUnidadeOptions(drivers) {
     const unidadeEl = document.getElementById('dashUnidade');
@@ -1964,23 +2009,26 @@ function populateFormSelects(drivers) {
     });
 }
 
-function switchSection(sectionId, menuItem) {
-    const sections = ['dashboard', 'ocorrencias', 'dashboards'];
-    sections.forEach(id => {
-        const el = document.getElementById(id + '-section');
-        if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
-    });
-    document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
-    if(menuItem) menuItem.classList.add('active');
-    if (sectionId === 'dashboards') renderDashboardsSection();
-    if (sectionId === 'ocorrencias') {
-        if (!state.allOccurrences || state.allOccurrences.length === 0) {
-            loadOcorrenciasData();
-        } else {
-            renderOcorrenciasSection();
-        }
-    }
-}
+  function switchSection(sectionId, menuItem) {
+      const sections = ['dashboard', 'ocorrencias', 'dashboards'];
+      sections.forEach(id => {
+          const el = document.getElementById(id + '-section');
+          if (el) el.style.display = (id === sectionId) ? 'block' : 'none';
+      });
+      document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+      if(menuItem) menuItem.classList.add('active');
+      if (sectionId === 'dashboards') renderDashboardsSection();
+      if (sectionId === 'ocorrencias') {
+          if (!state.allOccurrences || state.allOccurrences.length === 0) {
+              loadOcorrenciasData();
+          } else {
+              renderOcorrenciasSection();
+          }
+          startOcorrenciasAutoSync();
+      } else {
+          stopOcorrenciasAutoSync();
+      }
+  }
 
 // ============================================================================
 // COPIAR PARA CLIPBOARD

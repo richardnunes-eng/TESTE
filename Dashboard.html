@@ -142,12 +142,13 @@
             <div class="header-bar">
                 <div class="page-title"><h1>Ocorrencias</h1><p>Ocorrencias registradas no ClickUp</p></div>
                 <div class="header-actions">
-                    <div class="search-wrapper">
-                        <span class="material-icons-round search-icon">search</span>
-                        <input type="text" id="occSearchInput" placeholder="Buscar ocorrencias..." onkeyup="onOccSearchInput()">
-                    </div>
-                    <div class="view-toggles">
-                        <button class="view-btn active" id="occBtnGrid" onclick="setOccView('grid')"><span class="material-icons-round">grid_view</span></button>
+                      <div class="search-wrapper">
+                          <span class="material-icons-round search-icon">search</span>
+                          <input type="text" id="occSearchInput" placeholder="Buscar ocorrencias..." onkeyup="onOccSearchInput()">
+                      </div>
+                      <button class="btn-refresh" id="occRefreshBtn" onclick="startOcorrenciasManualSync()" style="margin-left:10px;"><span class="material-icons-round">sync</span></button>
+                      <div class="view-toggles">
+                          <button class="view-btn active" id="occBtnGrid" onclick="setOccView('grid')"><span class="material-icons-round">grid_view</span></button>
                         <button class="view-btn" id="occBtnTable" onclick="setOccView('table')"><span class="material-icons-round">table_rows</span></button>
                     </div>
                 </div>
@@ -356,4 +357,3 @@ function applyPipelineAsync() {
 }
 </script>
 </html>
-

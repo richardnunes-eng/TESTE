@@ -50,6 +50,11 @@ const SHEET_MAIN = "ENTREGAS";
 const SHEET_GM = "GreenMile";
 const SHEET_MOT = "MOTORISTAS";
 
+const OCORRENCIA_HEADER_CACHE_KEY = "ocorrencias_header_map_v2";
+const OCORRENCIA_HEADER_CACHE_TTL_SEC = 300;
+const OCORRENCIA_DEFAULT_PAGE_SIZE = 200;
+const OCORRENCIA_MAX_PAGE_SIZE = 500;
+
 /**
  * 🔍 TESTE ULTRA-MINIMALISTA
  * Se até isso retornar null, o problema é no carregamento dos arquivos .js
@@ -1186,22 +1191,89 @@ function parseNumeroSeguro(valor) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function montarEnderecoCompleto(desc, addressLine1, district, city) {
-  const vistos = new Set();
-  const partes = [desc, addressLine1, district, city]
-    .map(item => String(item || "").trim())
-    .filter(Boolean)
-    .filter(item => {
-      const chave = item.toLowerCase();
-      if (vistos.has(chave)) return false;
-      vistos.add(chave);
-      return true;
-    });
-  return partes.join(" - ");
-}
+  function montarEnderecoCompleto(desc, addressLine1, district, city) {
+    const vistos = new Set();
+    const partes = [desc, addressLine1, district, city]
+      .map(item => String(item || "").trim())
+      .filter(Boolean)
+      .filter(item => {
+        const chave = item.toLowerCase();
+        if (vistos.has(chave)) return false;
+        vistos.add(chave);
+        return true;
+      });
+    return partes.join(" - ");
+  }
 
-function mapDashboardCols(headers, type) {
-  const map = {
+  function normalizeHeaderKey(value) {
+    if (value === undefined || value === null) return "";
+    const base = String(value).trim();
+    if (!base) return "";
+    let normalized = base;
+    if (normalized.normalize) {
+      normalized = normalized.normalize("NFD");
+    }
+    return normalized
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Za-z0-9]+/g, " ")
+      .trim()
+      .toUpperCase();
+  }
+
+  function makeNormalizedHeaderMap(headerRow) {
+    const map = {};
+    headerRow.forEach((cell, index) => {
+      const key = normalizeHeaderKey(cell);
+      if (key && map[key] === undefined) {
+        map[key] = index;
+      }
+    });
+    return map;
+  }
+
+  function getOcorrenciasHeaderMeta(ws, lastCol) {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = OCORRENCIA_HEADER_CACHE_KEY;
+    if (cache) {
+      try {
+        const raw = cache.get(cacheKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.map && parsed.lastCol === lastCol) {
+            return parsed;
+          }
+        }
+      } catch (e) {
+        // Ignore cache parse failures
+      }
+    }
+
+    const headerRow = ws.getRange(1, 1, 1, lastCol).getValues()[0];
+    const map = makeNormalizedHeaderMap(headerRow);
+    const payload = { map, lastCol: lastCol };
+    if (cache) {
+      try {
+        cache.put(cacheKey, JSON.stringify(payload), OCORRENCIA_HEADER_CACHE_TTL_SEC);
+      } catch (e) {
+        // Ignore cache write failures
+      }
+    }
+    return payload;
+  }
+
+  function findOcorrenciaColumn(map, possibleNames) {
+    for (let i = 0; i < possibleNames.length; i++) {
+      const candidate = normalizeHeaderKey(possibleNames[i]);
+      if (!candidate) continue;
+      if (map.hasOwnProperty(candidate)) {
+        return map[candidate];
+      }
+    }
+    return -1;
+  }
+
+  function mapDashboardCols(headers, type) {
+    const map = {
     PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
     ARR:-1, DEP:-1, STATUS:-1,
     PESO_P:-1, PESO_A:-1,
@@ -1622,6 +1694,13 @@ function getOcorrenciasDataApi() {
   }
 }
 
+function getOcorrenciasDataPageApi(page, pageSize) {
+  const size = Math.max(1, Math.min(parseInt(pageSize || 100, 10), 1000));
+  const p = Math.max(0, parseInt(page || 0, 10));
+  const cursor = 2 + p * size;
+  return getOcorrenciasPageApi(size, cursor);
+}
+
 function getOcorrenciasPageApi(pageSize, cursor) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
@@ -1630,74 +1709,181 @@ function getOcorrenciasPageApi(pageSize, cursor) {
       needsAuth: authProbe.needsAuth
     });
   }
+
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const ws = ss.getSheetByName('OCORRENCIAS') || ss.getSheetByName('Ocorrencias');
+    const targetName = "OCORRENCIAS";
+    let ws = ss.getSheetByName(targetName) || ss.getSheetByName("Ocorrencias");
     if (!ws) {
-      return apiResponse(true, { items: [], nextCursor: null, done: true, totalRows: 0 }, null);
-    }
-    const lastRow = ws.getLastRow();
-    const lastCol = ws.getLastColumn();
-    const totalRows = Math.max(0, lastRow - 1);
-    if (lastRow < 2 || lastCol < 1) {
-      return apiResponse(true, { items: [], nextCursor: null, done: true, totalRows }, null);
+      const sheets = ss.getSheets();
+      for (let i = 0; i < sheets.length; i++) {
+        if (normalizeHeaderKey(sheets[i].getName()) === targetName) {
+          ws = sheets[i];
+          break;
+        }
+      }
     }
 
-    const size = Math.max(1, Math.min(parseInt(pageSize || 200, 10), 500));
-    const startRow = Math.max(2, parseInt(cursor || 2, 10));
+    const emptyMeta = { durationMs: 0, rows: 0, approxBytes: 0 };
+    if (!ws) {
+      return apiResponse(true, {
+        items: [],
+        nextCursor: null,
+        done: true,
+        totalRows: 0,
+        meta: emptyMeta
+      }, null);
+    }
+
+    const lastRow = ws.getLastRow();
+    const totalRows = Math.max(0, lastRow - 1);
+    const lastCol = Math.max(1, ws.getLastColumn());
+    if (lastRow < 2 || lastCol < 1) {
+      return apiResponse(true, {
+        items: [],
+        nextCursor: null,
+        done: true,
+        totalRows: totalRows,
+        meta: emptyMeta
+      }, null);
+    }
+
+    const parsedSize = parseInt(pageSize, 10);
+    const requestedSize = Number.isFinite(parsedSize) && parsedSize > 0 ? parsedSize : OCORRENCIA_DEFAULT_PAGE_SIZE;
+    const size = Math.min(OCORRENCIA_MAX_PAGE_SIZE, Math.max(1, requestedSize));
+
+    let startRow = parseInt(cursor, 10);
+    if (!Number.isFinite(startRow) || startRow < 2) startRow = 2;
     if (startRow > lastRow) {
-      return apiResponse(true, { items: [], nextCursor: null, done: true, totalRows }, null);
+      return apiResponse(true, {
+        items: [],
+        nextCursor: null,
+        done: true,
+        totalRows: totalRows,
+        meta: emptyMeta
+      }, null);
     }
 
     const numRows = Math.min(size, lastRow - startRow + 1);
-    const raw = ws.getRange(startRow, 1, numRows, lastCol).getValues();
-    const display = ws.getRange(startRow, 1, numRows, lastCol).getDisplayValues();
-    const headerRow = ws.getRange(1, 1, 1, lastCol).getValues()[0];
-    const itemsRaw = buildOcorrenciasFromValues(raw, display, headerRow);
-    const items = itemsRaw.map(o => ({
-      id: o.id,
-      nome: o.nome,
-      status: o.status,
-      statusColor: o.statusColor,
-      url: o.url,
-      createdAtIso: o.createdAtIso,
-      createdAtDisplay: o.createdAtDisplay,
-      closedAtIso: o.closedAtIso,
-      closedAtDisplay: o.closedAtDisplay,
-      motorista: o.motorista,
-      rota: o.rota,
-      unidade: o.unidade,
-      veiculo: o.veiculo,
-      cliente: o.cliente,
-      motivo: o.motivo,
-      causador: o.causador,
-      valor: o.valor
-    }));
+    if (numRows <= 0) {
+      return apiResponse(true, {
+        items: [],
+        nextCursor: null,
+        done: true,
+        totalRows: totalRows,
+        meta: emptyMeta
+      }, null);
+    }
 
-    const nextCursor = (startRow + numRows <= lastRow) ? startRow + numRows : null;
-    const done = !nextCursor;
+    const headerMeta = getOcorrenciasHeaderMeta(ws, lastCol);
+    const headerMap = headerMeta.map || {};
+    const effectiveColCount = Math.max(1, headerMeta.lastCol || lastCol);
+
+    const idx = {
+      id: findOcorrenciaColumn(headerMap, ["ID"]),
+      nome: findOcorrenciaColumn(headerMap, ["NOME", "OCORRENCIA", "TITULO"]),
+      status: findOcorrenciaColumn(headerMap, ["STATUS", "SITUACAO"]),
+      statusColor: findOcorrenciaColumn(headerMap, ["STATUS COR", "STATUS COLOR", "COR STATUS"]),
+      url: findOcorrenciaColumn(headerMap, ["URL", "LINK"]),
+      created: findOcorrenciaColumn(headerMap, ["DATA DE CRIACAO", "CRIADO EM", "DATA CRIACAO"]),
+      closed: findOcorrenciaColumn(headerMap, ["DATA DE FECHAMENTO", "FECHADO EM", "FINALIZADO EM"]),
+      motorista: findOcorrenciaColumn(headerMap, ["MOTORISTA"]),
+      rota: findOcorrenciaColumn(headerMap, ["ROTA", "PLANO"]),
+      unidade: findOcorrenciaColumn(headerMap, ["UNIDADE"]),
+      veiculo: findOcorrenciaColumn(headerMap, ["VEICULO", "PLACA"]),
+      cliente: findOcorrenciaColumn(headerMap, ["NOME CLIENTE", "CLIENTE"]),
+      motivo: findOcorrenciaColumn(headerMap, ["MOTIVO", "MOTIVO OCORRENCIA", "MOTIVO DA OCORRENCIA"]),
+      causador: findOcorrenciaColumn(headerMap, ["CAUSADOR", "AREA", "AREA RESPONSAVEL"]),
+      valor: findOcorrenciaColumn(headerMap, ["VALOR", "VALOR NF"]),
+      texto: findOcorrenciaColumn(headerMap, ["TEXTO OCORRENCIA", "TEXTO", "DESCRICAO", "OBSERVACAO"])
+    };
+
+    const t0 = Date.now();
+    const raw = ws.getRange(startRow, 1, numRows, effectiveColCount).getValues();
+    const items = [];
+
+    for (let i = 0; i < raw.length; i++) {
+      const row = raw[i];
+      const createdRaw = idx.created !== -1 ? row[idx.created] : null;
+      const closedRaw = idx.closed !== -1 ? row[idx.closed] : null;
+      const createdDate = parseDateSafe(createdRaw);
+      const closedDate = parseDateSafe(closedRaw);
+      const createdAtIso = createdDate
+        ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")
+        : "";
+      const closedAtIso = closedDate
+        ? Utilities.formatDate(closedDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")
+        : "";
+      const createdAtDisplay = createdDate
+        ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm")
+        : (createdRaw ? String(createdRaw) : "");
+      const closedAtDisplay = closedDate
+        ? Utilities.formatDate(closedDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm")
+        : (closedRaw ? String(closedRaw) : "");
+
+      const getString = (index) => {
+        if (index === -1) return "";
+        const value = row[index];
+        return value === undefined || value === null ? "" : String(value);
+      };
+
+      const valorRaw = idx.valor !== -1 ? row[idx.valor] : "";
+      const textoRaw = getString(idx.texto);
+
+      items.push({
+        id: getString(idx.id),
+        nome: getString(idx.nome),
+        status: getString(idx.status),
+        statusColor: getString(idx.statusColor),
+        url: getString(idx.url),
+        createdAtIso: createdAtIso,
+        createdAtDisplay: createdAtDisplay,
+        closedAtIso: closedAtIso,
+        closedAtDisplay: closedAtDisplay,
+        motorista: getString(idx.motorista),
+        rota: getString(idx.rota),
+        unidade: getString(idx.unidade),
+        veiculo: getString(idx.veiculo),
+        cliente: getString(idx.cliente),
+        motivo: getString(idx.motivo),
+        causador: getString(idx.causador),
+        valor: valorRaw === undefined || valorRaw === null ? "" : String(valorRaw),
+        texto: textoRaw.substring(0, 500)
+      });
+    }
+
+    const durationMs = Date.now() - t0;
+    const approxBytes = JSON.stringify(items).length;
+    let suggestedPageSize = null;
+    if (durationMs > 1500 || approxBytes > 300000) {
+      suggestedPageSize = Math.max(100, Math.floor(size / 2));
+    }
+
+    const meta = {
+      durationMs: durationMs,
+      rows: items.length,
+      approxBytes: approxBytes
+    };
+    if (suggestedPageSize && suggestedPageSize < size) {
+      meta.suggestedPageSize = suggestedPageSize;
+    }
+
+    const nextCursor = (startRow + numRows) <= lastRow ? (startRow + numRows) : null;
     return apiResponse(true, {
       items: items,
       nextCursor: nextCursor,
-      done: done,
-      totalRows: totalRows
+      done: !nextCursor,
+      totalRows: totalRows,
+      meta: meta
     }, null);
   } catch (e) {
     const needsAuth = isAuthError(e);
     return apiResponse(false, null, {
-      message: needsAuth ? 'Autorize o app para continuar.' : e.message,
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
       needsAuth: needsAuth
     });
   }
 }
-
-function getOcorrenciasDataPageApi(page, pageSize) {
-  const size = Math.max(1, Math.min(parseInt(pageSize || 100, 10), 1000));
-  const p = Math.max(0, parseInt(page || 0, 10));
-  const cursor = 2 + p * size;
-  return getOcorrenciasPageApi(size, cursor);
-}
-
 // ============================================================================
 // SALVAR OCORRÊNCIA
 // ============================================================================
@@ -1873,4 +2059,3 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
-
