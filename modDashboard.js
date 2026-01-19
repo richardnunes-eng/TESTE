@@ -210,13 +210,20 @@ function getDashboardData(modo) {
     const CACHE_DURATION = 60;
     
     // Fast path com cache
-    if (modo !== 'force') {
-      const cachedData = cache.get(cacheKey);
-      if (cachedData) {
-        console.log("⚡ Cache hit");
-        return JSON.parse(cachedData);
+      if (modo !== 'force') {
+        const cachedData = cache.get(cacheKey);
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData);
+            if (parsed && parsed.ok !== undefined) {
+              console.log("⚡ Cache hit");
+              return parsed;
+            }
+          } catch (e) {
+            console.warn("Cache invalido: " + e.message);
+          }
+        }
       }
-    }
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const props = PropertiesService.getScriptProperties();
@@ -503,7 +510,6 @@ function getDashboardData(modo) {
     // Payload Final
     const payload = {
       drivers: [],
-      ocorrencias: [],
       stats: { total: 0, emRota: 0, finalizados: 0, criticos: 0 },
       lastUpdate: Utilities.formatDate(new Date(), "GMT-3", "HH:mm")
     };
@@ -637,14 +643,6 @@ function getDashboardData(modo) {
     // Ordenação: Críticos primeiro
     const pesoStatus = { "CRITICO": 4, "EM_ROTA": 3, "RESSALVA": 2, "FINALIZADO": 1, "OUTROS": 0 };
     payload.drivers.sort((a,b) => pesoStatus[b.status] - pesoStatus[a.status]);
-
-    // Ocorrencias (ClickUp)
-    try {
-      payload.ocorrencias = getOcorrenciasData(ss);
-    } catch (e) {
-      console.warn("Erro ao carregar ocorrencias: " + e.message);
-      payload.ocorrencias = [];
-    }
 
     // Envolve payload com apiResponse antes de cachear
     const response = apiResponse(true, payload, null);
@@ -1170,15 +1168,24 @@ function mapDashboardCols(headers, type) {
 // ============================================================================
 // OCORRENCIAS (CLICKUP)
 // ============================================================================
-function getOcorrenciasData(ss) {
+function getOcorrenciasData(ss, maxRows) {
   const ws = ss.getSheetByName("OCORRENCIAS") || ss.getSheetByName("Ocorrencias");
   if (!ws) return [];
-  const raw = ws.getDataRange().getValues();
-  const display = ws.getDataRange().getDisplayValues();
-  if (raw.length < 2) return [];
+  const lastRow = ws.getLastRow();
+  const lastCol = ws.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  const totalRows = lastRow - 1;
+  const limit = maxRows && maxRows > 0 ? Math.min(maxRows, totalRows) : totalRows;
+  const startRow = Math.max(2, lastRow - limit + 1);
+  const numRows = lastRow - startRow + 1;
+
+  const raw = ws.getRange(startRow, 1, numRows, lastCol).getValues();
+  const display = ws.getRange(startRow, 1, numRows, lastCol).getDisplayValues();
+  const headerRow = ws.getRange(1, 1, 1, lastCol).getValues()[0];
 
   const headerMap = {};
-  raw[0].forEach((h, i) => {
+  headerRow.forEach((h, i) => {
     headerMap[String(h || "").trim().toUpperCase()] = i;
   });
 
@@ -1195,16 +1202,20 @@ function getOcorrenciasData(ss) {
   const idxStatusCor = findCol(["STATUS COR", "STATUS COLOR"]);
   const idxUrl = findCol(["URL"]);
   const idxCriacao = findCol(["DATA DE CRIAÇÃO", "DATA DE CRIACAO", "DATA DE CRIAÇAO"]);
+  const idxFechamento = findCol(["DATA DE FECHAMENTO", "DATA DE FECHAMENTO"]);
   const idxMotorista = findCol(["MOTORISTA"]);
   const idxRota = findCol(["ROTA", "PLANO"]);
-  const idxCliente = findCol(["CLIENTE"]);
-  const idxMotivo = findCol(["MOTIVO"]);
+  const idxUnidade = findCol(["UNIDADE"]);
+  const idxVeiculo = findCol(["VEÍCULO", "VEICULO"]);
+  const idxCliente = findCol(["NOME CLIENTE", "CLIENTE"]);
+  const idxMotivo = findCol(["MOTIVO DA OCORRÊNCIA", "MOTIVO"]);
   const idxCausador = findCol(["CAUSADOR", "AREA", "ÁREA"]);
-  const idxValor = findCol(["VALOR"]);
+  const idxValor = findCol(["VALOR", "VALOR NF"]);
+  const idxTexto = findCol(["TEXTO OCORRÊNCIA", "TEXTO OCORRENCIA", "DESCRIÇÃO", "OBSERVAÇÃO"]);
 
   const ocorrencias = [];
 
-  for (let i = 1; i < raw.length; i++) {
+  for (let i = 0; i < raw.length; i++) {
     const createdRaw = idxCriacao !== -1 ? raw[i][idxCriacao] : null;
     const createdDate = parseDateSafe(createdRaw);
     const createdAtIso = createdDate
@@ -1214,6 +1225,18 @@ function getOcorrenciasData(ss) {
       ? Utilities.formatDate(createdDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm")
       : (idxCriacao !== -1 ? String(display[i][idxCriacao] || "") : "");
 
+    const closedRaw = idxFechamento !== -1 ? raw[i][idxFechamento] : null;
+    const closedDate = parseDateSafe(closedRaw);
+    const closedAtIso = closedDate
+      ? Utilities.formatDate(closedDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")
+      : "";
+    const closedAtDisplay = closedDate
+      ? Utilities.formatDate(closedDate, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm")
+      : (idxFechamento !== -1 ? String(display[i][idxFechamento] || "") : "");
+
+    const textoRaw = idxTexto !== -1 ? (display[i][idxTexto] || raw[i][idxTexto] || "") : "";
+    const textoLimpo = String(textoRaw || "").trim().substring(0, 500);
+
     ocorrencias.push({
       id: idxId !== -1 ? raw[i][idxId] : "",
       nome: idxNome !== -1 ? String(display[i][idxNome] || raw[i][idxNome] || "") : "",
@@ -1222,12 +1245,17 @@ function getOcorrenciasData(ss) {
       url: idxUrl !== -1 ? String(display[i][idxUrl] || raw[i][idxUrl] || "") : "",
       createdAtIso: createdAtIso,
       createdAtDisplay: createdAtDisplay,
+      closedAtIso: closedAtIso,
+      closedAtDisplay: closedAtDisplay,
       motorista: idxMotorista !== -1 ? String(display[i][idxMotorista] || raw[i][idxMotorista] || "") : "",
       rota: idxRota !== -1 ? String(display[i][idxRota] || raw[i][idxRota] || "") : "",
+      unidade: idxUnidade !== -1 ? String(display[i][idxUnidade] || raw[i][idxUnidade] || "") : "",
+      veiculo: idxVeiculo !== -1 ? String(display[i][idxVeiculo] || raw[i][idxVeiculo] || "") : "",
       cliente: idxCliente !== -1 ? String(display[i][idxCliente] || raw[i][idxCliente] || "") : "",
       motivo: idxMotivo !== -1 ? String(display[i][idxMotivo] || raw[i][idxMotivo] || "") : "",
       causador: idxCausador !== -1 ? String(display[i][idxCausador] || raw[i][idxCausador] || "") : "",
-      valor: idxValor !== -1 ? raw[i][idxValor] : ""
+      valor: idxValor !== -1 ? raw[i][idxValor] : "",
+      texto: textoLimpo
     });
   }
 
@@ -1239,6 +1267,47 @@ function getOcorrenciasData(ss) {
   });
 
   return ocorrencias;
+}
+
+function getOcorrenciasDataApi() {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
+  }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ocorrenciasRaw = getOcorrenciasData(ss, 200);
+    const limit = 200;
+    const ocorrencias = ocorrenciasRaw.slice(0, limit).map(o => ({
+      id: o.id,
+      nome: o.nome,
+      status: o.status,
+      statusColor: o.statusColor,
+      url: o.url,
+      createdAtIso: o.createdAtIso,
+      createdAtDisplay: o.createdAtDisplay,
+      closedAtIso: o.closedAtIso,
+      closedAtDisplay: o.closedAtDisplay,
+      motorista: o.motorista,
+      rota: o.rota,
+      unidade: o.unidade,
+      veiculo: o.veiculo,
+      cliente: o.cliente,
+      motivo: o.motivo,
+      causador: o.causador,
+      valor: o.valor
+    }));
+    return apiResponse(true, { ocorrencias }, null);
+  } catch (e) {
+    const needsAuth = isAuthError(e);
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
+  }
 }
 
 // ============================================================================
@@ -1416,7 +1485,3 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
-
-
-
-

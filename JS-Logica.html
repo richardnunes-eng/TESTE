@@ -14,7 +14,17 @@
       viewMode: 'grid',
       occViewMode: 'grid',
       occSearch: '',
-      occSearchTerms: []
+      occSearchTerms: [],
+      occFilters: {
+          unidade: '',
+          status: '',
+          motivo: '',
+          causador: '',
+          motorista: '',
+          rota: '',
+          dateStart: '',
+          dateEnd: ''
+      }
   };
 
   let searchTimeout = null;
@@ -24,6 +34,8 @@ let loaderQuoteTimer = null;
 let initialDataLoaded = false;
 let selectedDriverId = null;
 let dashboardsInitialized = false;
+let ocorrenciasInitialized = false;
+let occLoadInFlight = false;
 const CLICKUP_STATUS_OPTIONS = [
     "EM ROTA",
     "AGUARDANDO DESCARGA",
@@ -339,31 +351,32 @@ function loadData(modo = 'check', opts = {}) {
 
             // Valida estrutura de resposta
             const validation = validateApiResponse(res, 'getDashboardData');
-            if (!validation.valid) {
-                console.error("Erro Load:", validation.error);
-                if(icon) icon.classList.remove('rotating');
+              if (!validation.valid) {
+                  console.error("Erro Load:", validation.error);
+                  if(icon) icon.classList.remove('rotating');
 
-                if (validation.needsAuth) {
-                    handleNeedsAuth(validation.error);
-                    hideGlobalLoader();
-                    return;
-                }
+                  if (validation.needsAuth) {
+                      handleNeedsAuth(validation.error);
+                      hideGlobalLoader();
+                      return;
+                  }
 
-                if(modo === 'force') {
-                    alert("Erro ao carregar dados: " + validation.error);
-                    hideGlobalLoader();
-                }
-                if (isAuto) {
-                    autoSyncBackoffMs = Math.min(autoSyncBackoffMs * 2, AUTO_SYNC_MAX_MS);
-                    scheduleAutoSync(autoSyncBackoffMs);
-                }
-                return;
+                  if(modo === 'force') {
+                      alert("Erro ao carregar dados: " + validation.error);
+                      hideGlobalLoader();
+                  }
+                  stopLoader();
+                  hideGlobalLoader();
+                  if (isAuto) {
+                      autoSyncBackoffMs = Math.min(autoSyncBackoffMs * 2, AUTO_SYNC_MAX_MS);
+                      scheduleAutoSync(autoSyncBackoffMs);
+                  }
+                  return;
             }
 
             // Extrai dados validados
             const data = validation.data || {};
-              let incomingDrivers = data.drivers || [];
-              let incomingOccurrences = data.ocorrencias || [];
+      let incomingDrivers = data.drivers || [];
 
             // Proteção Anti-Fantasma
             incomingDrivers.forEach(d => {
@@ -374,8 +387,7 @@ function loadData(modo = 'check', opts = {}) {
                 }
             });
 
-              state.allDrivers = incomingDrivers;
-              state.allOccurrences = incomingOccurrences;
+      state.allDrivers = incomingDrivers;
               prepareSearchIndex(state.allDrivers);
               saveToCache(state.allDrivers); 
 
@@ -392,7 +404,11 @@ function loadData(modo = 'check', opts = {}) {
             initialDataLoaded = true;
               renderDashboard({ drivers: state.allDrivers, silent: (modo !== 'force') }); 
               if (document.getElementById('ocorrencias-section')?.style.display !== 'none') {
-                  renderOcorrenciasSection();
+                  if (!state.allOccurrences || state.allOccurrences.length === 0) {
+                      loadOcorrenciasData();
+                  } else {
+                      renderOcorrenciasSection();
+                  }
               }
             
             // Para o ícone e esconde loader
@@ -438,7 +454,18 @@ function renderDashboard(dataOpcional) {
     }
     const silent = dataOpcional && dataOpcional.silent;
 
-    if (state.allDrivers.length === 0) return;
+    if (state.allDrivers.length === 0) {
+        if (document.getElementById('ocorrencias-section')?.style.display !== 'none') {
+            if (!state.allOccurrences || state.allOccurrences.length === 0) {
+                loadOcorrenciasData();
+            } else {
+                renderOcorrenciasSection();
+            }
+        }
+        stopLoader();
+        hideGlobalLoader();
+        return;
+    }
 
     prepareSearchIndex(state.allDrivers);
     
@@ -1233,10 +1260,41 @@ function renderOcorrenciasSection() {
     if (!section) return;
 
     const list = Array.isArray(state.allOccurrences) ? state.allOccurrences : [];
+    initOcorrenciasControls();
+    populateOcorrenciasFilters(list);
     const filtered = filterOcorrencias(list);
+    const ordered = sortOcorrencias(filtered);
 
-    if (state.occViewMode === 'grid') renderOcorrenciasGrid(filtered);
-    else renderOcorrenciasTable(filtered);
+    updateOcorrenciasKpis(ordered);
+    if (state.occViewMode === 'grid') renderOcorrenciasGrid(ordered);
+    else renderOcorrenciasTable(ordered);
+}
+
+function loadOcorrenciasData() {
+    if (occLoadInFlight) return;
+    occLoadInFlight = true;
+    showGlobalLoader('Carregando ocorrencias...', 'soft');
+    google.script.run
+        .withSuccessHandler(res => {
+            occLoadInFlight = false;
+            hideGlobalLoader();
+            const validation = validateApiResponse(res, 'getOcorrenciasData');
+            if (!validation.valid) {
+                console.error('Erro Ocorrencias:', validation.error);
+                showToast('Erro ao carregar ocorrencias', 'error');
+                return;
+            }
+            const data = validation.data || {};
+            state.allOccurrences = data.ocorrencias || [];
+            renderOcorrenciasSection();
+        })
+        .withFailureHandler(err => {
+            occLoadInFlight = false;
+            hideGlobalLoader();
+            console.error('Erro Ocorrencias:', err);
+            showToast('Erro ao carregar ocorrencias', 'error');
+        })
+        .getOcorrenciasDataApi();
 }
 
 function filterOcorrencias(list) {
@@ -1245,9 +1303,26 @@ function filterOcorrencias(list) {
         const termos = state.occSearchTerms;
         result = result.filter(o => {
             const base = [
-                o.nome, o.status, o.motorista, o.rota, o.cliente, o.motivo, o.causador
+                o.nome, o.status, o.motorista, o.rota, o.cliente, o.motivo, o.causador, o.unidade, o.texto
             ].join(' ').toLowerCase();
             return termos.some(t => base.includes(t));
+        });
+    }
+    const f = state.occFilters;
+    if (f.unidade) result = result.filter(o => o.unidade === f.unidade);
+    if (f.status) result = result.filter(o => getOcorrenciaStatusGroup(o) === f.status);
+    if (f.motivo) result = result.filter(o => o.motivo === f.motivo);
+    if (f.causador) result = result.filter(o => o.causador === f.causador);
+    if (f.motorista) result = result.filter(o => o.motorista === f.motorista);
+    if (f.rota) result = result.filter(o => o.rota === f.rota);
+    if (f.dateStart || f.dateEnd) {
+        const end = f.dateEnd || f.dateStart;
+        result = result.filter(o => {
+            if (!o.createdAtIso) return false;
+            const d = o.createdAtIso.substring(0, 10);
+            if (f.dateStart && d < f.dateStart) return false;
+            if (end && d > end) return false;
+            return true;
         });
     }
     return result;
@@ -1260,9 +1335,149 @@ function getOccurrenceDelayMinutes(o) {
     return Math.floor((Date.now() - dt.getTime()) / 60000);
 }
 
+function getOccurrenceElapsedMinutes(o) {
+    if (!o || !o.createdAtIso) return 0;
+    const dtStart = new Date(o.createdAtIso);
+    if (Number.isNaN(dtStart.getTime())) return 0;
+    const isFinal = getOcorrenciaStatusGroup(o) === 'FINALIZADA';
+    const dtEnd = (isFinal && o.closedAtIso) ? new Date(o.closedAtIso) : new Date();
+    if (Number.isNaN(dtEnd.getTime())) return 0;
+    return Math.max(0, Math.floor((dtEnd.getTime() - dtStart.getTime()) / 60000));
+}
+
 function openOccurrence(url) {
     if (!url) return;
     window.open(url, '_blank');
+}
+
+function getOcorrenciaStatusGroup(o) {
+    const status = String(o.status || '').toLowerCase();
+    if (status.includes('final') || status.includes('conclu') || status.includes('fechad')) return 'FINALIZADA';
+    if (o.closedAtIso) return 'FINALIZADA';
+    return 'ABERTA';
+}
+
+function sortOcorrencias(list) {
+    return list.slice().sort((a, b) => {
+        const aFinal = getOcorrenciaStatusGroup(a) === 'FINALIZADA';
+        const bFinal = getOcorrenciaStatusGroup(b) === 'FINALIZADA';
+        if (aFinal !== bFinal) return aFinal ? 1 : -1;
+        if (!aFinal) {
+            const da = getOccurrenceDelayMinutes(a);
+            const db = getOccurrenceDelayMinutes(b);
+            return db - da;
+        }
+        if (a.closedAtIso && b.closedAtIso) return a.closedAtIso < b.closedAtIso ? 1 : -1;
+        if (a.closedAtIso) return -1;
+        if (b.closedAtIso) return 1;
+        return 0;
+    });
+}
+
+function updateOcorrenciasKpis(list) {
+    const totalEl = document.getElementById('occKpiTotal');
+    const openEl = document.getElementById('occKpiOpen');
+    const lateEl = document.getElementById('occKpiLate');
+    const closedEl = document.getElementById('occKpiClosed');
+    const avgEl = document.getElementById('occKpiAvg');
+    if (!totalEl || !openEl || !lateEl || !closedEl || !avgEl) return;
+
+    let total = list.length;
+    let open = 0;
+    let late = 0;
+    let closedToday = 0;
+    let closedCount = 0;
+    let closedSum = 0;
+    const todayIso = getLocalIsoDate(new Date());
+
+    list.forEach(o => {
+        const isFinal = getOcorrenciaStatusGroup(o) === 'FINALIZADA';
+        if (!isFinal) {
+            open++;
+            if (getOccurrenceDelayMinutes(o) >= 30) late++;
+        } else {
+            if (o.closedAtIso && o.closedAtIso.substring(0, 10) === todayIso) closedToday++;
+            if (o.createdAtIso && o.closedAtIso) {
+                const dtA = new Date(o.createdAtIso);
+                const dtB = new Date(o.closedAtIso);
+                if (!Number.isNaN(dtA.getTime()) && !Number.isNaN(dtB.getTime())) {
+                    closedSum += Math.max(0, Math.floor((dtB.getTime() - dtA.getTime()) / 60000));
+                    closedCount++;
+                }
+            }
+        }
+    });
+
+    totalEl.innerText = total;
+    openEl.innerText = open;
+    lateEl.innerText = late;
+    closedEl.innerText = closedToday;
+    avgEl.innerText = closedCount > 0 ? formatMinutesToHhMm(Math.round(closedSum / closedCount)) : '--';
+}
+
+function initOcorrenciasControls() {
+    if (ocorrenciasInitialized) return;
+    const selects = [
+        'occFilterUnidade',
+        'occFilterStatus',
+        'occFilterMotivo',
+        'occFilterCausador',
+        'occFilterMotorista',
+        'occFilterRota'
+    ];
+    selects.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', () => {
+                state.occFilters.unidade = document.getElementById('occFilterUnidade')?.value || '';
+                state.occFilters.status = document.getElementById('occFilterStatus')?.value || '';
+                state.occFilters.motivo = document.getElementById('occFilterMotivo')?.value || '';
+                state.occFilters.causador = document.getElementById('occFilterCausador')?.value || '';
+                state.occFilters.motorista = document.getElementById('occFilterMotorista')?.value || '';
+                state.occFilters.rota = document.getElementById('occFilterRota')?.value || '';
+                renderOcorrenciasSection();
+            });
+        }
+    });
+    const dateStart = document.getElementById('occDateStart');
+    const dateEnd = document.getElementById('occDateEnd');
+    if (dateStart) dateStart.addEventListener('change', () => {
+        state.occFilters.dateStart = dateStart.value || '';
+        renderOcorrenciasSection();
+    });
+    if (dateEnd) dateEnd.addEventListener('change', () => {
+        state.occFilters.dateEnd = dateEnd.value || '';
+        renderOcorrenciasSection();
+    });
+    ocorrenciasInitialized = true;
+}
+
+function populateOcorrenciasFilters(list) {
+    const values = (key) => [...new Set(list.map(o => o[key]).filter(Boolean))].sort();
+    populateOccSelect('occFilterUnidade', values('unidade'), 'Todas as Unidades');
+    populateOccSelect('occFilterStatus', ['ABERTA', 'FINALIZADA'], 'Todos os Status');
+    populateOccSelect('occFilterMotivo', values('motivo'), 'Todos os Motivos');
+    populateOccSelect('occFilterCausador', values('causador'), 'Todos os Causadores');
+    populateOccSelect('occFilterMotorista', values('motorista'), 'Todos os Motoristas');
+    populateOccSelect('occFilterRota', values('rota'), 'Todas as Rotas');
+}
+
+function populateOccSelect(id, items, placeholder) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const prev = el.value || '';
+    el.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = placeholder;
+    el.appendChild(opt);
+    items.forEach(v => {
+        const o = document.createElement('option');
+        o.value = v;
+        o.textContent = v;
+        el.appendChild(o);
+    });
+    if ([...el.options].some(o => o.value === prev)) el.value = prev;
 }
 
 function renderOcorrenciasGrid(list) {
@@ -1278,24 +1493,28 @@ function renderOcorrenciasGrid(list) {
 
     list.forEach(o => {
         const delayMins = getOccurrenceDelayMinutes(o);
-        const delayFmt = formatMinutesToHhMm(delayMins);
-        const isLate = delayMins >= 30;
-        const statusText = o.status || 'ABERTA';
-        const badgeClass = isLate ? 'badge-danger' : 'badge-info';
+        const tempoMins = getOccurrenceElapsedMinutes(o);
+        const tempoFmt = formatMinutesToHhMm(tempoMins);
+        const isFinal = getOcorrenciaStatusGroup(o) === 'FINALIZADA';
+        const isLate = !isFinal && delayMins >= 30;
+        const statusText = o.status || (isFinal ? 'FINALIZADA' : 'ABERTA');
+        const badgeClass = isFinal ? 'badge-success' : (isLate ? 'badge-danger' : 'badge-info');
         const tempoClass = isLate ? 'danger' : '';
         const meta = [o.cliente, o.motorista, o.rota].filter(Boolean).join(' • ');
         const createdText = o.createdAtDisplay || '--';
+        const closedText = o.closedAtDisplay || '--';
         const safeUrl = String(o.url || '').replace(/'/g, "\\'");
 
         const html = `
         <div class="card-driver" ${safeUrl ? `onclick="openOccurrence('${safeUrl}')"` : ''}>
             <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
                 <span class="status-badge ${badgeClass}">${statusText}</span>
-                <span class="tbl-live-info ${tempoClass}">⏱ ${delayFmt}</span>
+                <span class="tbl-live-info ${tempoClass}">⏱ ${tempoFmt}</span>
             </div>
             <div style="font-weight:700; font-size:1rem; margin-top:8px;">${o.nome || 'Ocorrência'}</div>
             ${meta ? `<div style="color:var(--text-muted); font-size:0.8rem; margin-top:6px;">${meta}</div>` : ''}
-            <div style="margin-top:10px; font-size:0.75rem; color:var(--text-muted);">${createdText}</div>
+            <div style="margin-top:10px; font-size:0.75rem; color:var(--text-muted);">Criado: ${createdText}</div>
+            ${isFinal ? `<div style="margin-top:4px; font-size:0.75rem; color:var(--text-muted);">Finalizado: ${closedText}</div>` : ''}
         </div>`;
 
         grid.innerHTML += html;
@@ -1309,18 +1528,21 @@ function renderOcorrenciasTable(list) {
     tbody.innerHTML = '';
 
     if (list.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">Nenhuma ocorrência encontrada</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">Nenhuma ocorrência encontrada</td></tr>`;
         return;
     }
 
     list.forEach(o => {
         const delayMins = getOccurrenceDelayMinutes(o);
-        const delayFmt = formatMinutesToHhMm(delayMins);
-        const isLate = delayMins >= 30;
-        const badgeClass = isLate ? 'badge-danger' : 'badge-info';
+        const tempoMins = getOccurrenceElapsedMinutes(o);
+        const tempoFmt = formatMinutesToHhMm(tempoMins);
+        const isFinal = getOcorrenciaStatusGroup(o) === 'FINALIZADA';
+        const isLate = !isFinal && delayMins >= 30;
+        const badgeClass = isFinal ? 'badge-success' : (isLate ? 'badge-danger' : 'badge-info');
         const tempoClass = isLate ? 'danger' : '';
-        const statusText = o.status || 'ABERTA';
+        const statusText = o.status || (isFinal ? 'FINALIZADA' : 'ABERTA');
         const createdText = o.createdAtDisplay || '--';
+        const closedText = o.closedAtDisplay || '--';
         const safeUrl = String(o.url || '').replace(/'/g, "\\'");
 
         const html = `
@@ -1331,7 +1553,8 @@ function renderOcorrenciasTable(list) {
             <td>${o.motorista || '-'}</td>
             <td>${o.rota || '-'}</td>
             <td style="white-space: nowrap;">${createdText}</td>
-            <td><span class="tbl-live-info ${tempoClass}">⏱ ${delayFmt}</span></td>
+            <td style="white-space: nowrap;">${isFinal ? closedText : '-'}</td>
+            <td><span class="tbl-live-info ${tempoClass}">⏱ ${tempoFmt}</span></td>
         </tr>`;
 
         tbody.innerHTML += html;
@@ -1665,7 +1888,13 @@ function switchSection(sectionId, menuItem) {
     document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
     if(menuItem) menuItem.classList.add('active');
     if (sectionId === 'dashboards') renderDashboardsSection();
-    if (sectionId === 'ocorrencias') renderOcorrenciasSection();
+    if (sectionId === 'ocorrencias') {
+        if (!state.allOccurrences || state.allOccurrences.length === 0) {
+            loadOcorrenciasData();
+        } else {
+            renderOcorrenciasSection();
+        }
+    }
 }
 
 // ============================================================================

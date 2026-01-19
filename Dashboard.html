@@ -153,6 +153,48 @@
                 </div>
             </div>
 
+            <div class="kpi-grid">
+                <div class="kpi-card blue"><span class="material-icons-round kpi-icon-bg">assignment</span><div class="kpi-val" id="occKpiTotal">0</div><div class="kpi-lbl">Total</div></div>
+                <div class="kpi-card info"><span class="material-icons-round kpi-icon-bg">hourglass_top</span><div class="kpi-val" id="occKpiOpen" style="color:#3B82F6;">0</div><div class="kpi-lbl">Em Aberto</div></div>
+                <div class="kpi-card danger"><span class="material-icons-round kpi-icon-bg">warning</span><div class="kpi-val" id="occKpiLate" style="color:var(--danger);">0</div><div class="kpi-lbl">Atrasadas</div></div>
+                <div class="kpi-card success"><span class="material-icons-round kpi-icon-bg">check_circle</span><div class="kpi-val" id="occKpiClosed" style="color:var(--accent);">0</div><div class="kpi-lbl">Finalizadas Hoje</div></div>
+                <div class="kpi-card blue"><span class="material-icons-round kpi-icon-bg">schedule</span><div class="kpi-val" id="occKpiAvg">--</div><div class="kpi-lbl">Tempo Médio</div></div>
+            </div>
+
+            <div class="filters-advanced-row">
+                <div class="input-wrapper select-wrapper">
+                    <span class="material-icons-round input-icon">business</span>
+                    <select id="occFilterUnidade"><option value="">Todas as Unidades</option></select>
+                </div>
+                <div class="input-wrapper select-wrapper">
+                    <span class="material-icons-round input-icon">flag</span>
+                    <select id="occFilterStatus"><option value="">Todos os Status</option></select>
+                </div>
+                <div class="input-wrapper select-wrapper">
+                    <span class="material-icons-round input-icon">report_problem</span>
+                    <select id="occFilterMotivo"><option value="">Todos os Motivos</option></select>
+                </div>
+                <div class="input-wrapper select-wrapper">
+                    <span class="material-icons-round input-icon">precision_manufacturing</span>
+                    <select id="occFilterCausador"><option value="">Todos os Causadores</option></select>
+                </div>
+                <div class="input-wrapper select-wrapper">
+                    <span class="material-icons-round input-icon">person_pin</span>
+                    <select id="occFilterMotorista"><option value="">Todos os Motoristas</option></select>
+                </div>
+                <div class="input-wrapper select-wrapper">
+                    <span class="material-icons-round input-icon">alt_route</span>
+                    <select id="occFilterRota"><option value="">Todas as Rotas</option></select>
+                </div>
+            </div>
+
+            <div class="date-range-container" style="margin: 10px 0 20px 0;">
+                <span class="material-icons-round" style="color:var(--primary);">calendar_today</span>
+                <input type="date" id="occDateStart" class="date-input-clean">
+                <span class="date-separator">ATÉ</span>
+                <input type="date" id="occDateEnd" class="date-input-clean">
+            </div>
+
             <div class="grid-drivers" id="occGrid"></div>
             <div class="table-container" id="occTableView" style="display:none;">
                 <table class="data-table">
@@ -163,6 +205,7 @@
                         <th>Motorista</th>
                         <th>Rota</th>
                         <th>Criado em</th>
+                        <th>Finalizado em</th>
                         <th>Tempo</th>
                     </tr>
                     <tbody id="occTableBody"></tbody>
@@ -307,8 +350,6 @@ function applyPipelineAsync() {
 }
 </script>
 </html>
-
-
 
 
 
