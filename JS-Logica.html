@@ -38,9 +38,6 @@ const LOADER_QUOTES = [
     { text: "Tudo o que temos de decidir é o que fazer com o tempo que nos é dado.", author: "J.R.R. Tolkien", book: "O Senhor dos Anéis" },
     { text: "Estratégia sem tática é o caminho mais lento para a vitória. Tática sem estratégia é o ruído antes da derrota.", author: "Sun Tzu", book: "A Arte da Guerra" }
 ];
-const inIframe = window.top !== window.self;
-let webAppUrlCache = "";
-let guardActive = false;
 let autoSyncTimerId = null;
 
 function parsePermanenciaMinutes(raw) {
@@ -154,210 +151,18 @@ function initThemeToggle() {
     } catch(e){ console.warn("Erro ao inicializar tema:", e); }
 }
 
-function initGuardActions() {
-    const guard = document.getElementById('appGuard');
-    if (!guard || guard.dataset.bound === '1') return;
-    guard.dataset.bound = '1';
-
-    const openBtn = document.getElementById('guardOpenBtn');
-    const retryBtn = document.getElementById('guardRetryBtn');
-    const copyBtn = document.getElementById('guardCopyBtn');
-    const copyInputBtn = document.getElementById('guardCopyInputBtn');
-
-    if (openBtn) {
-        openBtn.addEventListener('click', () => {
-            openWebApp(webAppUrlCache || document.getElementById('guardUrlInput')?.value);
-        });
-    }
-    if (retryBtn) {
-        retryBtn.addEventListener('click', () => {
-            checkAuthAndStart(true);
-        });
-    }
-    if (copyBtn) {
-        copyBtn.addEventListener('click', () => {
-            copyAppLink(webAppUrlCache || document.getElementById('guardUrlInput')?.value);
-        });
-    }
-    if (copyInputBtn) {
-        copyInputBtn.addEventListener('click', () => {
-            copyAppLink(document.getElementById('guardUrlInput')?.value);
-        });
-    }
-}
-
-function showGuardScreen(config) {
-    const guard = document.getElementById('appGuard');
-    if (!guard) return;
-    guardActive = true;
-    guard.classList.add('active');
-    guard.style.display = 'flex';
-
-    const iconEl = document.getElementById('guardIcon');
-    const titleEl = document.getElementById('guardTitle');
-    const msgEl = document.getElementById('guardMessage');
-    const openBtn = document.getElementById('guardOpenBtn');
-    const retryBtn = document.getElementById('guardRetryBtn');
-    const fallback = document.getElementById('guardFallback');
-    const copyBtn = document.getElementById('guardCopyBtn');
-
-    if (iconEl) iconEl.innerText = config.icon || 'open_in_new';
-    if (titleEl) titleEl.innerText = config.title || 'Atencao';
-    if (msgEl) msgEl.innerText = config.message || '';
-    if (openBtn) {
-        openBtn.innerText = config.openLabel || 'Abrir em nova aba';
-        openBtn.disabled = true;
-    }
-    if (retryBtn) retryBtn.style.display = config.showRetry ? 'inline-flex' : 'none';
-    if (fallback) fallback.style.display = 'none';
-    if (copyBtn) copyBtn.disabled = true;
-}
-
-function hideGuardScreen() {
-    const guard = document.getElementById('appGuard');
-    guardActive = false;
-    if (guard) {
-        guard.classList.remove('active');
-        guard.style.display = 'none';
-    }
-}
-
-function setGuardUrl(url) {
-    const input = document.getElementById('guardUrlInput');
-    const fallback = document.getElementById('guardFallback');
-    const openBtn = document.getElementById('guardOpenBtn');
-    const copyBtn = document.getElementById('guardCopyBtn');
-    if (input) input.value = url || '';
-    if (fallback) fallback.style.display = url ? 'block' : 'none';
-    if (openBtn) openBtn.disabled = !url;
-    if (copyBtn) copyBtn.disabled = !url;
-}
-
-function fetchWebAppUrl(onSuccess, onFailure) {
-    if (webAppUrlCache) {
-        onSuccess(webAppUrlCache);
-        return;
-    }
-    google.script.run
-        .withSuccessHandler(url => {
-            webAppUrlCache = String(url || '');
-            if (webAppUrlCache) onSuccess(webAppUrlCache);
-            else if (onFailure) onFailure(new Error('URL vazia'));
-        })
-        .withFailureHandler(err => {
-            console.warn('Erro ao obter URL do Web App:', err);
-            if (onFailure) onFailure(err);
-        })
-        .getWebAppUrl();
-}
-
-function openWebApp(url) {
-    const target = url || '';
-    if (!target) return;
-    window.open(target, '_blank', 'noopener');
-}
-
-function copyAppLink(url) {
-    const target = url || '';
-    if (!target) return;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(target).then(() => {
-            showToast('Link copiado!', 'content_copy');
-        }).catch(() => {
-            showToast('Nao foi possivel copiar o link.', 'error');
-        });
-        return;
-    }
-    try {
-        const input = document.getElementById('guardUrlInput');
-        if (input) {
-            input.focus();
-            input.select();
-            document.execCommand('copy');
-            showToast('Link copiado!', 'content_copy');
-        }
-    } catch (e) {
-        console.warn('Falha ao copiar link:', e);
-    }
-}
-
-function attemptIframeEscape() {
-    fetchWebAppUrl((url) => {
-        const targetUrl = url || location.href;
-
-        // Tentativa 1: Redirecionar o top (pode falhar por cross-origin)
-        try {
-            if (window.top && window.top.location) {
-                window.top.location.href = targetUrl;
-                return;
-            }
-        } catch (e) {
-            console.warn('Nao foi possivel redirecionar top (cross-origin):', e);
-        }
-
-        // Tentativa 2: Abrir nova aba automaticamente
-        try {
-            const newWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
-            if (newWindow) {
-                showToast('App aberto em nova aba. Feche esta janela.', 'open_in_new');
-            }
-        } catch (e) {
-            console.warn('Nao foi possivel abrir nova aba:', e);
-        }
-
-        // Fallback: Mostrar tela com botões manuais
-        showIframeFallbackScreen(targetUrl);
-    }, () => {
-        // Se falhar ao obter URL, usar location.href
-        const targetUrl = location.href;
-        showIframeFallbackScreen(targetUrl);
-    });
-}
-
-function showIframeFallbackScreen(url) {
-    showGuardScreen({
-        icon: 'open_in_new',
-        title: 'Redirecionando...',
-        message: 'Este app nao pode ser exibido em iframe. Se nao abriu automaticamente, clique no botao abaixo.',
-        openLabel: 'Abrir em nova aba',
-        showRetry: false
-    });
-    setGuardUrl(url);
-    stopLoader();
-}
-
-function renderIframeGate() {
-    attemptIframeEscape();
-}
-
-function renderAuthGate(message) {
-    showGuardScreen({
-        icon: 'verified_user',
-        title: 'Autorizar o app',
-        message: message || 'Este app precisa de autorizacao para acessar seus dados. Clique em Autorizar e conclua o OAuth.',
-        openLabel: 'Autorizar',
-        showRetry: true
-    });
-    showToast('Autorizacao necessaria.', 'verified_user');
-    stopLoader();
-
-    fetchWebAppUrl((url) => {
-        setGuardUrl(url);
-    }, () => {
-        setGuardUrl(location.href);
-    });
-}
-
 function handleNeedsAuth(message) {
     if (autoSyncTimerId) {
         clearInterval(autoSyncTimerId);
         autoSyncTimerId = null;
     }
-    if (inIframe) {
-        renderIframeGate();
-        return;
-    }
-    renderAuthGate(message);
+    // Mostra aviso discreto de autorização necessária
+    console.warn('Autorizacao necessaria:', message);
+    showToast(message || 'Autorizacao necessaria. Verifique as permissoes.', 'verified_user');
+    stopLoader();
+
+    // Mostra alerta para o usuário
+    alert(message || 'Este app precisa de autorizacao para acessar seus dados. Recarregue a pagina e autorize quando solicitado.');
 }
 
 function checkAuthAndStart(showToastOnOk = false) {
@@ -379,7 +184,6 @@ function checkAuthAndStart(showToastOnOk = false) {
 
             // Sucesso - dados em validation.data (userEmail, env, version, etc)
             if (showToastOnOk) showToast('Autorizacao confirmada.', 'check_circle');
-            hideGuardScreen();
             startApp();
         })
         .withFailureHandler(err => {
@@ -419,13 +223,6 @@ function startApp() {
 window.onload = function() {
     initLoaderFailsafe();
     initThemeToggle();
-    initGuardActions();
-
-    if (inIframe) {
-        renderIframeGate();
-        return;
-    }
-
     checkAuthAndStart();
 };
 
@@ -486,11 +283,6 @@ function loadData(modo = 'check') {
     // Ícone gira em todos os modos
     const icon = document.getElementById('refreshIcon');
     if(icon) icon.classList.add('rotating');
-    if (guardActive) {
-        if(icon) icon.classList.remove('rotating');
-        hideGlobalLoader();
-        return;
-    }
 
     // Timeout de segurança - 30s
     const timeoutId = setTimeout(() => {
