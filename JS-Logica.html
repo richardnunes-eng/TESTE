@@ -1638,8 +1638,13 @@ window.renderDetailedModal = function(id) {
 
             let badgeTexto = "Previsto";
             let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);"; 
-            const permanenciaRaw = parseFloat(String(s.permanencia || '').replace(',', '.'));
-            const permanenciaMinutes = Number.isFinite(permanenciaRaw) ? permanenciaRaw : null;
+            const permanenciaMinutes = (() => {
+                const raw = s.permanencia;
+                if (raw === null || raw === undefined || raw === '') return null;
+                if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+                const parsed = Number.parseFloat(String(raw).replace(',', '.'));
+                return Number.isFinite(parsed) ? parsed : null;
+            })();
             const estaFinalizado = s.isDone || permanenciaMinutes !== null;
 
             if (s.hora && s.hora.includes(':')) {
