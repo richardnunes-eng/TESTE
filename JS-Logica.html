@@ -1874,12 +1874,8 @@ window.renderDetailedModal = function(id) {
             }
 
             let badgeTexto = "Previsto";
-            let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);"; 
- codex/debug-usercodeapppanel-authentication-issue-ng0iqa
+            let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);";
             const permanenciaMinutes = parsePermanenciaMinutes(s.permanencia);
-=======
-            const permanenciaMinutes = Number.isFinite(Number(s.permanencia)) ? Number(s.permanencia) : null;
-main
             const estaFinalizado = s.isDone || permanenciaMinutes !== null;
 
             if (s.hora && s.hora.includes(':')) {
