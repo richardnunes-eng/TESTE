@@ -1638,14 +1638,14 @@ window.renderDetailedModal = function(id) {
 
             let badgeTexto = "Previsto";
             let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);"; 
-            
-            const estaFinalizado = s.isDone || (s.permanencia !== null && s.permanencia !== undefined);
+            const permanenciaMinutes = Number.isFinite(Number(s.permanencia)) ? Number(s.permanencia) : null;
+            const estaFinalizado = s.isDone || permanenciaMinutes !== null;
 
             if (s.hora && s.hora.includes(':')) {
                 if (estaFinalizado) {
-                    if (s.permanencia !== null && s.permanencia !== undefined) {
-                        let hh = Math.floor(s.permanencia / 60);
-                        let mm = s.permanencia % 60;
+                    if (permanenciaMinutes !== null) {
+                        let hh = Math.floor(permanenciaMinutes / 60);
+                        let mm = permanenciaMinutes % 60;
                         
                         if (hh > 0) {
                             badgeTexto = `${hh}h ${String(mm).padStart(2, '0')}m`;
@@ -1706,7 +1706,7 @@ window.renderDetailedModal = function(id) {
             let hiddenContent = '';
             let detailsId = `stop-details-${index}`;
 
-            if (hasValue || hasNfe || hasPeso || hasClienteCodigo || hasEndereco || s.hora || s.saida || s.permanencia !== null) {
+            if (hasValue || hasNfe || hasPeso || hasClienteCodigo || hasEndereco || s.hora || s.saida || permanenciaMinutes !== null) {
                 let valStr = hasValue ? valorNum.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00';
                 let nfeStr = hasNfe ? s.nfe : '-';
                 let pesoStr = hasPeso ? `${pesoNum.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` : '-';
@@ -1715,9 +1715,9 @@ window.renderDetailedModal = function(id) {
                 let chegadaStr = s.hora ? s.hora : '-';
                 let saidaStr = s.saida ? s.saida : '-';
                 let permanenciaStr = '-';
-                if (s.permanencia !== null && s.permanencia !== undefined) {
-                    let hh = Math.floor(s.permanencia / 60);
-                    let mm = s.permanencia % 60;
+                if (permanenciaMinutes !== null) {
+                    let hh = Math.floor(permanenciaMinutes / 60);
+                    let mm = permanenciaMinutes % 60;
                     permanenciaStr = hh > 0 ? `${hh}h ${String(mm).padStart(2, '0')}m` : `${mm} min`;
                 }
 
