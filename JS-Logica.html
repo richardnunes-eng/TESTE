@@ -43,6 +43,13 @@ let webAppUrlCache = "";
 let guardActive = false;
 let autoSyncTimerId = null;
 
+function parsePermanenciaMinutes(raw) {
+    if (raw === null || raw === undefined || raw === '') return null;
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+    const parsed = Number.parseFloat(String(raw).replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
 // ============================================================================
 // UTILITÁRIOS DE DATA (FILTRO INICIAL)
 // ============================================================================
@@ -1868,7 +1875,11 @@ window.renderDetailedModal = function(id) {
 
             let badgeTexto = "Previsto";
             let badgeStyle = "background: rgba(120,120,120,0.1); color: var(--text-muted);"; 
+ codex/debug-usercodeapppanel-authentication-issue-ng0iqa
+            const permanenciaMinutes = parsePermanenciaMinutes(s.permanencia);
+=======
             const permanenciaMinutes = Number.isFinite(Number(s.permanencia)) ? Number(s.permanencia) : null;
+main
             const estaFinalizado = s.isDone || permanenciaMinutes !== null;
 
             if (s.hora && s.hora.includes(':')) {
@@ -1883,7 +1894,7 @@ window.renderDetailedModal = function(id) {
                             badgeTexto = `${mm} min`;
                         }
                         
-                        if (s.permanencia > 60) {
+                        if (permanenciaMinutes > 60) {
                             badgeStyle = "background: #EF4444; color: white; font-weight: 600; box-shadow: 0 2px 5px rgba(239,68,68,0.3);";
                         } else {
                             badgeStyle = "background: rgba(59, 130, 246, 0.1); color: var(--primary); font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.2);";
