@@ -129,6 +129,41 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+// === RELATORIOS EM LOOP (TRIGGER A CADA 1 MINUTO) ===
+const RELATORIOS_LOOP_HANDLER = "runRelatoriosLoop";
+
+function startRelatoriosLoop() {
+  stopRelatoriosLoop();
+  ScriptApp.newTrigger(RELATORIOS_LOOP_HANDLER)
+    .timeBased()
+    .everyMinutes(1)
+    .create();
+  return apiResponse(true, { started: true }, null);
+}
+
+function stopRelatoriosLoop() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach((trigger) => {
+    if (trigger.getHandlerFunction() === RELATORIOS_LOOP_HANDLER) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  return apiResponse(true, { stopped: true }, null);
+}
+
+function runRelatoriosLoop() {
+  const tasks = [
+    { name: "dashboard", run: () => getDashboardData("force") }
+  ];
+
+  tasks.forEach((task) => {
+    const result = safeExecute(task.run);
+    if (!result.ok) {
+      console.warn(`Relatorio ${task.name} falhou: ${result.message}`);
+    }
+  });
+}
+
 /**
  * FUNÇÃO PRINCIPAL - RETORNA DADOS DO DASHBOARD
  */
@@ -1273,7 +1308,6 @@ function mapClickupStatusColor(status) {
   if (s.includes("pernoite")) return "#F59E0B";
   return "#3B82F6";
 }
-
 
 
 
