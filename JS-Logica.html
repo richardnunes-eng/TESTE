@@ -62,6 +62,7 @@ const OCC_MOTIVOS = [
       occDone: false,
       occTotalRows: 0,
       occMeta: null,
+      driverOccList: [],
       registrarOcorrencia: {
           driverId: null,
           stopList: [],
@@ -1784,7 +1785,8 @@ function buildOccStopList(driver) {
         enderecoCompleto: String(s.enderecoCompleto || '').trim() || '---',
         nfe: String(s.nfe || '').trim() || '---',
         peso: parseOccNumber(s.peso),
-        valor: parseOccNumber(s.valor)
+        valor: parseOccNumber(s.valor),
+        clickupId: String(s.clickupId || '').trim() || ''
     }));
 }
 
@@ -1998,7 +2000,8 @@ function confirmRegistrarOcorrencia() {
             enderecoCompleto: s.enderecoCompleto,
             nfe: s.nfe,
             peso: s.peso,
-            valor: s.valor
+            valor: s.valor,
+            clickupId: s.clickupId || ''
         })),
         metadados: {
             rotaId: driver.id || '',
@@ -2018,8 +2021,10 @@ function confirmRegistrarOcorrencia() {
             }
             showToast('Ocorrencia registrada com sucesso.', 'check_circle');
             closeRegistrarOcorrencia();
-            loadOcorrenciasByPlano(payload.plano);
-            loadOcorrenciasData(true);
+            if (validation.data && validation.data.ocorrencia) {
+                addOccurrenceToState(validation.data.ocorrencia);
+                updateDriverOccList(validation.data.ocorrencia);
+            }
         })
         .withFailureHandler(err => {
             setOccFormLoading(false);
@@ -2040,12 +2045,32 @@ function loadOcorrenciasByPlano(plano) {
                 return;
             }
             const ocorrencias = (validation.data && validation.data.ocorrencias) ? validation.data.ocorrencias : [];
+            state.driverOccList = ocorrencias;
             renderOcorrenciasByPlano(ocorrencias);
         })
         .withFailureHandler(() => {
+            state.driverOccList = [];
             renderOcorrenciasByPlano([]);
         })
         .getOcorrenciasByPlano(plano || '');
+}
+
+function addOccurrenceToState(occurrence) {
+    if (!occurrence) return;
+    const exists = state.occBuffer.some(o => String(o.id || '') === String(occurrence.id || ''));
+    if (!exists) {
+        state.occBuffer = [occurrence, ...state.occBuffer];
+    }
+    state.allOccurrences = [...state.occBuffer];
+    renderOcorrenciasSection();
+}
+
+function updateDriverOccList(occurrence) {
+    if (!occurrence) return;
+    const list = Array.isArray(state.driverOccList) ? state.driverOccList.slice() : [];
+    list.unshift(occurrence);
+    state.driverOccList = list;
+    renderOcorrenciasByPlano(list);
 }
 
 function renderOcorrenciasByPlano(list) {
@@ -2864,4 +2889,3 @@ window.closeModal = function() {
 
 // ============================================================================
 </script>
-

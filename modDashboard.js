@@ -528,6 +528,7 @@ function getDashboardData(modo) {
           valor: valorSubtask,
           peso: pesoSubtask,
           enderecoCompleto: "",
+          clickupId: String(dataMainRaw[i][colMain.ID_CLICKUP] || "").trim(),
           _ordem: dataOrdem ? dataOrdem.getTime() : null
         };
 
@@ -1928,6 +1929,183 @@ function ensureOcorrenciasSheet() {
   return ws;
 }
 
+const OCC_CLICKUP_FIELDS = {
+  MOTIVO: "abac1b68-5d67-4715-adfc-094c09838527",
+  CAUSADOR: "4c968015-edd9-4e6c-9214-b94e91d2080e",
+  DESCRICAO: "236b2c56-26e4-4418-8622-0c3a86c0651c",
+  CUSTO: "b5ea9afc-d3c3-46e7-8c89-fb3a1aea62e2"
+};
+
+const OCC_LINK_CONFIG = {
+  FIELD_ID: "6622150e-d78d-414c-a9c5-ebf052f58974",
+  MAX_TENTATIVAS: 30,
+  INTERVALO_SEGUNDOS: 5
+};
+
+const OCC_CAUSADORES = {
+  "3CORACOES": "94ab5035-ffbd-4e17-970f-d221745c6817",
+  "CLIENTE": "6363f2db-8db6-43f5-aed6-24b949825769",
+  "MOTORISTA": "2a8b0c01-e5ec-4b4d-aa68-23ad66919da7",
+  "FATORES EXTERNOS": "13e26be5-6b19-480a-825e-957c7012f373",
+  "CUSTO EXTRA": "bf129f0b-3eb2-417a-8964-1ac598963502"
+};
+
+function getOcorrenciasListId() {
+  if (typeof CONFIG_LISTAS !== "undefined" && CONFIG_LISTAS.OCORRENCIAS && CONFIG_LISTAS.OCORRENCIAS.id) {
+    return CONFIG_LISTAS.OCORRENCIAS.id;
+  }
+  return "";
+}
+
+function getOcorrenciaCausadorLabel(label) {
+  const target = String(label || "CLIENTE").toUpperCase().trim();
+  return OCC_CAUSADORES[target] ? target : "CLIENTE";
+}
+
+function getOcorrenciaCausadorId(label) {
+  const key = getOcorrenciaCausadorLabel(label);
+  return OCC_CAUSADORES[key];
+}
+
+function buildOcorrenciaDescricao(data) {
+  return [
+    `Nota Fiscal: ${data.notas || "---"}`,
+    `Plano: ${data.plano || "---"}`,
+    `Placa: ${data.placa || "---"}`,
+    `Motorista: ${data.motorista || "---"}`,
+    `Cliente(s): ${data.clientes || "---"}`,
+    `Endereço(s): ${data.enderecos || "---"}`,
+    `Cód. Cliente(s): ${data.codigos || "---"}`,
+    `Perfil: ${data.perfil || "---"}`,
+    `Peso: ${data.pesos || "---"}`,
+    `Valor NFe: ${data.valores || "---"}`,
+    `Motivo: ${data.motivo || "---"}`,
+    `Detalhes: ${data.detalhes || "---"}`
+  ].join("\n");
+}
+
+function criarTarefaOcorrenciaClickup(data) {
+  const url = `https://api.clickup.com/api/v2/list/${data.listId}/task`;
+  const payload = {
+    name: data.nome,
+    description: data.descricao,
+    custom_fields: [
+      { id: OCC_CLICKUP_FIELDS.MOTIVO, value: data.motivoId },
+      { id: OCC_CLICKUP_FIELDS.CAUSADOR, value: data.causadorOptionId },
+      { id: OCC_CLICKUP_FIELDS.DESCRICAO, value: data.descricaoCampo || "" },
+      { id: OCC_CLICKUP_FIELDS.CUSTO, value: Number.isFinite(data.custo) ? data.custo : 0 }
+    ]
+  };
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    headers: {
+      Authorization: CLICKUP_TOKEN,
+      "Content-Type": "application/json"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    console.error("Erro ClickUp create: " + response.getContentText());
+    return null;
+  }
+  return JSON.parse(response.getContentText());
+}
+
+function atualizarCampoClickup(taskId, fieldId, value) {
+  const url = `https://api.clickup.com/api/v2/task/${taskId}/field/${fieldId}`;
+  const payload = { value: value };
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    headers: {
+      Authorization: CLICKUP_TOKEN,
+      "Content-Type": "application/json"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  return response.getResponseCode() >= 200 && response.getResponseCode() < 300;
+}
+
+function verificarStatusCheckbox(taskId, fieldId) {
+  const url = `https://api.clickup.com/api/v2/task/${taskId}`;
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: CLICKUP_TOKEN },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) return false;
+  const json = JSON.parse(response.getContentText());
+  const campo = json.custom_fields.find(f => f.id === fieldId);
+  return Boolean(campo && campo.value === true);
+}
+
+function buscarLinkNovo(taskId, tsCorte) {
+  const url = `https://api.clickup.com/api/v2/task/${taskId}/comment`;
+  const response = UrlFetchApp.fetch(url, {
+    method: "get",
+    headers: { Authorization: CLICKUP_TOKEN },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) return "";
+  const json = JSON.parse(response.getContentText());
+  const comments = json.comments || [];
+  const limite = Math.min(comments.length, 5);
+
+  for (let i = 0; i < limite; i++) {
+    const comentario = comments[i];
+    const dataComentario = Number(comentario.date);
+    const texto = comentario.comment_text;
+    if (dataComentario > tsCorte && texto && texto.toLowerCase().includes("http")) {
+      return extrairLink(texto);
+    }
+  }
+  return "";
+}
+
+function extrairLink(texto) {
+  const textoLimpo = String(texto || "").replace(/[\r\n]+/g, " ");
+  const palavras = textoLimpo.split(" ");
+  for (let palavra of palavras) {
+    if (palavra.toLowerCase().includes("http")) {
+      return palavra.trim();
+    }
+  }
+  return "";
+}
+
+function buscarLinkOcorrencia(taskId) {
+  const timestampInicio = Date.now();
+  const statusCampo = verificarStatusCheckbox(taskId, OCC_LINK_CONFIG.FIELD_ID);
+  if (!statusCampo) {
+    atualizarCampoClickup(taskId, OCC_LINK_CONFIG.FIELD_ID, true);
+  }
+
+  for (let i = 1; i <= OCC_LINK_CONFIG.MAX_TENTATIVAS; i++) {
+    const link = buscarLinkNovo(taskId, timestampInicio);
+    if (link) {
+      return link;
+    }
+    Utilities.sleep(OCC_LINK_CONFIG.INTERVALO_SEGUNDOS * 1000);
+  }
+  return "";
+}
+
+function extrairClickupIdDeUrl(link) {
+  const match = String(link || "").match(/\/t\/([a-zA-Z0-9]+)/i);
+  return match ? match[1] : "";
+}
+
+function preencherCamposOcorrenciaLink(taskId, data) {
+  atualizarCampoClickup(taskId, OCC_CLICKUP_FIELDS.MOTIVO, data.motivoId || "");
+  if (data.causadorOptionId) {
+    atualizarCampoClickup(taskId, OCC_CLICKUP_FIELDS.CAUSADOR, data.causadorOptionId);
+  }
+  atualizarCampoClickup(taskId, OCC_CLICKUP_FIELDS.DESCRICAO, data.descricao || "");
+  atualizarCampoClickup(taskId, OCC_CLICKUP_FIELDS.CUSTO, Number.isFinite(data.custo) ? data.custo : 0);
+}
+
 function getOcorrenciasByPlano(plano) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
@@ -2007,7 +2185,8 @@ function createOcorrencia(payload) {
         enderecoCompleto: endereco,
         nfe: nfe,
         peso: peso,
-        valor: valor
+        valor: valor,
+        clickupId: safeText(stop.clickupId || "")
       };
     });
 
@@ -2023,16 +2202,72 @@ function createOcorrencia(payload) {
     const perfil = String(payload.perfil || "").trim();
     const metadados = payload.metadados || {};
 
-    const ocorrenciaId = "OCC-" + new Date().getTime();
+    const clickupListId = getOcorrenciasListId();
+    if (!clickupListId) {
+      return apiResponse(false, null, { message: "Lista do ClickUp nao configurada", needsAuth: false });
+    }
+
     const createdAt = new Date();
-    const status = "ABERTA";
+    const description = buildOcorrenciaDescricao({
+      plano: plano,
+      placa: placa,
+      motorista: motorista,
+      perfil: perfil,
+      motivo: motivoNome,
+      detalhes: detalhes,
+      notas: notasStr,
+      clientes: clientesStr,
+      enderecos: enderecosStr,
+      codigos: clientesCodigoStr,
+      pesos: pesoStr,
+      valores: valorStr
+    });
+
+    const causadorLabel = getOcorrenciaCausadorLabel(payload.causador || "CLIENTE");
+    const causadorOptionId = getOcorrenciaCausadorId(causadorLabel);
+    const custoTotal = valores.reduce((acc, v) => acc + (Number.isFinite(v) ? v : 0), 0);
+
+    const createdTask = criarTarefaOcorrenciaClickup({
+      listId: clickupListId,
+      nome: `Ocorrência - ${motivoNome}`,
+      descricao: description,
+      motivoId: motivoId,
+      causadorOptionId: causadorOptionId,
+      descricaoCampo: detalhes,
+      custo: custoTotal
+    });
+
+    if (!createdTask || !createdTask.id) {
+      return apiResponse(false, null, { message: "Erro ao criar ocorrência no ClickUp", needsAuth: false });
+    }
+
+    const subtaskId = stopsClean.find(stop => stop.clickupId && stop.clickupId !== "---")?.clickupId || "";
+    let linkEncontrado = "";
+    let linkTaskId = "";
+    if (subtaskId) {
+      linkEncontrado = buscarLinkOcorrencia(subtaskId);
+      if (linkEncontrado) {
+          linkTaskId = extrairClickupIdDeUrl(linkEncontrado);
+        if (linkTaskId) {
+          preencherCamposOcorrenciaLink(linkTaskId, {
+            motivoId: motivoId,
+            causadorOptionId: causadorOptionId,
+            descricao: detalhes,
+            custo: custoTotal
+          });
+        }
+      }
+    }
+
+    const status = (createdTask.status && createdTask.status.status) ? createdTask.status.status : "ABERTA";
+    const statusColor = (createdTask.status && createdTask.status.color) ? createdTask.status.color : "";
 
     const ocorrencia = {
-      id: ocorrenciaId,
-      nome: motivoNome,
+      id: createdTask.id,
+      nome: createdTask.name || motivoNome,
       status: status,
-      statusColor: "",
-      url: "",
+      statusColor: statusColor,
+      url: createdTask.url || "",
       createdAtIso: Utilities.formatDate(createdAt, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"),
       createdAtDisplay: Utilities.formatDate(createdAt, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"),
       closedAtIso: "",
@@ -2043,49 +2278,15 @@ function createOcorrencia(payload) {
       veiculo: placa,
       cliente: clientesStr,
       motivo: motivoNome,
-      causador: "",
+      causador: causadorLabel,
       valor: valorStr,
-      texto: detalhes
+      texto: detalhes,
+      linkedTaskUrl: linkEncontrado || "",
+      linkedTaskId: linkTaskId || ""
     };
 
-    const ws = ensureOcorrenciasSheet();
-    ws.appendRow([
-      ocorrenciaId,
-      ocorrencia.nome,
-      status,
-      "",
-      "",
-      createdAt,
-      "",
-      motorista,
-      plano,
-      "",
-      placa,
-      clientesStr,
-      motivoNome,
-      "",
-      valorStr,
-      detalhes,
-      placa,
-      perfil,
-      motivoId,
-      JSON.stringify({
-        ...metadados,
-        plano: plano,
-        placa: placa,
-        motorista: motorista,
-        createdAt: createdAt.toISOString()
-      }),
-      JSON.stringify(stopsClean),
-      notasStr,
-      clientesCodigoStr,
-      enderecosStr,
-      pesoStr
-    ]);
-
     return apiResponse(true, {
-      ocorrenciaId: ocorrenciaId,
-      savedRow: ws.getLastRow(),
+      ocorrenciaId: createdTask.id,
       ocorrencia: ocorrencia
     }, null);
   } catch (e) {
