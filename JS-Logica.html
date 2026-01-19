@@ -36,6 +36,8 @@ let selectedDriverId = null;
 let dashboardsInitialized = false;
 let ocorrenciasInitialized = false;
 let occLoadInFlight = false;
+let occPage = 0;
+let occHasMore = false;
 const CLICKUP_STATUS_OPTIONS = [
     "EM ROTA",
     "AGUARDANDO DESCARGA",
@@ -1268,24 +1270,48 @@ function renderOcorrenciasSection() {
     updateOcorrenciasKpis(ordered);
     if (state.occViewMode === 'grid') renderOcorrenciasGrid(ordered);
     else renderOcorrenciasTable(ordered);
+
+    const loadMoreBtn = document.getElementById('occLoadMoreBtn');
+    if (loadMoreBtn) {
+        loadMoreBtn.style.display = occHasMore ? 'inline-flex' : 'none';
+        loadMoreBtn.disabled = occLoadInFlight;
+    }
 }
 
-function loadOcorrenciasData() {
+function loadOcorrenciasData(reset = true) {
     if (occLoadInFlight) return;
     occLoadInFlight = true;
     showGlobalLoader('Carregando ocorrencias...', 'soft');
+    if (reset) {
+        occPage = 0;
+        occHasMore = false;
+    }
     google.script.run
         .withSuccessHandler(res => {
             occLoadInFlight = false;
             hideGlobalLoader();
-            const validation = validateApiResponse(res, 'getOcorrenciasData');
+
+            const safeRes = (res && typeof res === 'object')
+                ? res
+                : { ok: false, data: null, error: { message: 'Resposta vazia do servidor', needsAuth: false }, ts: new Date().toISOString() };
+
+            const validation = validateApiResponse(safeRes, 'getOcorrenciasData');
             if (!validation.valid) {
                 console.error('Erro Ocorrencias:', validation.error);
+                if (validation.needsAuth) {
+                    handleNeedsAuth(validation.error);
+                    return;
+                }
                 showToast('Erro ao carregar ocorrencias', 'error');
                 return;
             }
+
             const data = validation.data || {};
-            state.allOccurrences = data.ocorrencias || [];
+            const incoming = data.ocorrencias || [];
+            if (reset) state.allOccurrences = incoming;
+            else state.allOccurrences = (state.allOccurrences || []).concat(incoming);
+            occHasMore = Boolean(data.hasMore);
+            if (data.nextPage !== undefined) occPage = data.nextPage;
             renderOcorrenciasSection();
         })
         .withFailureHandler(err => {
@@ -1294,7 +1320,12 @@ function loadOcorrenciasData() {
             console.error('Erro Ocorrencias:', err);
             showToast('Erro ao carregar ocorrencias', 'error');
         })
-        .getOcorrenciasDataApi();
+        .getOcorrenciasDataPageApi(occPage, 100);
+}
+
+function loadMoreOcorrencias() {
+    if (occLoadInFlight || !occHasMore) return;
+    loadOcorrenciasData(false);
 }
 
 function filterOcorrencias(list) {

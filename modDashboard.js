@@ -51,6 +51,120 @@ const SHEET_GM = "GreenMile";
 const SHEET_MOT = "MOTORISTAS";
 
 /**
+ * 🔍 TESTE ULTRA-MINIMALISTA
+ * Se até isso retornar null, o problema é no carregamento dos arquivos .js
+ */
+function testeMinimo() {
+  return { ok: true, data: { teste: "funcionou" }, error: null, ts: new Date().toISOString() };
+}
+
+/**
+ * 🔍 DIAGNÓSTICO: Versão alternativa para contornar cache
+ */
+function getOcorrenciasDataApiV2() {
+  Logger.log('[V2] Inicio');
+  console.log('[V2] Inicio');
+
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, { message: authProbe.message, needsAuth: authProbe.needsAuth });
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ocorrenciasRaw = getOcorrenciasData(ss, 200) || [];
+    const ocorrencias = ocorrenciasRaw.slice(0, 200).map(o => ({
+      id: o.id, nome: o.nome, status: o.status, statusColor: o.statusColor,
+      url: o.url, createdAtIso: o.createdAtIso, createdAtDisplay: o.createdAtDisplay,
+      closedAtIso: o.closedAtIso, closedAtDisplay: o.closedAtDisplay,
+      motorista: o.motorista, rota: o.rota, unidade: o.unidade, veiculo: o.veiculo,
+      cliente: o.cliente, motivo: o.motivo, causador: o.causador, valor: o.valor
+    }));
+
+    Logger.log('[V2] Retornando ' + ocorrencias.length + ' ocorrencias');
+    console.log('[V2] Retornando ' + ocorrencias.length + ' ocorrencias');
+    return apiResponse(true, { ocorrencias: ocorrencias }, null);
+  } catch (e) {
+    Logger.log('[V2] Erro: ' + e.message);
+    return apiResponse(false, null, { message: e.message, needsAuth: isAuthError(e) });
+  }
+}
+
+/**
+ * 🔍 DIAGNÓSTICO: Testa acesso à planilha de Ocorrências
+ */
+function testarAbaOcorrencias() {
+  try {
+    Logger.log('=== TESTE: Acesso à Planilha ===');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    Logger.log('✅ Planilha ID: ' + ss.getId());
+    Logger.log('✅ Planilha Nome: ' + ss.getName());
+
+    const todasAbas = ss.getSheets().map(s => s.getName());
+    Logger.log('✅ Todas as abas: ' + todasAbas.join(', '));
+
+    const ws = ss.getSheetByName("OCORRENCIAS") || ss.getSheetByName("Ocorrencias");
+
+    if (!ws) {
+      Logger.log('❌ Aba OCORRENCIAS não encontrada!');
+      return apiResponse(false, {
+        abas: todasAbas,
+        encontrada: false
+      }, {
+        message: 'Aba OCORRENCIAS não existe. Abas disponíveis: ' + todasAbas.join(', '),
+        needsAuth: false
+      });
+    }
+
+    Logger.log('✅ Aba encontrada: ' + ws.getName());
+
+    const lastRow = ws.getLastRow();
+    const lastCol = ws.getLastColumn();
+    Logger.log('✅ lastRow: ' + lastRow + ', lastCol: ' + lastCol);
+
+    if (lastRow < 2) {
+      Logger.log('⚠️ Aba vazia (sem dados além do cabeçalho)');
+      return apiResponse(true, {
+        encontrada: true,
+        vazia: true,
+        lastRow: lastRow,
+        lastCol: lastCol
+      }, null);
+    }
+
+    // Tenta ler o cabeçalho
+    const headers = ws.getRange(1, 1, 1, lastCol).getValues()[0];
+    Logger.log('✅ Cabeçalhos: ' + headers.join(', '));
+
+    // Tenta ler a primeira linha de dados
+    if (lastRow >= 2) {
+      ws.getRange(2, 1, 1, lastCol).getValues();
+      Logger.log('✅ Primeira linha OK');
+    }
+
+    return apiResponse(true, {
+      encontrada: true,
+      vazia: false,
+      lastRow: lastRow,
+      lastCol: lastCol,
+      headers: headers
+    }, null);
+
+  } catch (e) {
+    Logger.log('❌ ERRO: ' + e.message);
+    Logger.log('Stack: ' + e.stack);
+
+    const needsAuth = isAuthError(e);
+    return apiResponse(false, null, {
+      message: e.message,
+      needsAuth: needsAuth,
+      stack: e.stack
+    });
+  }
+}
+
+/**
  * Wrapper padrão para todas as respostas da API
  * Garante estrutura consistente: { ok, data, error, ts }
  */
@@ -1166,14 +1280,160 @@ function mapDashboardCols(headers, type) {
 }
 
 // ============================================================================
-// OCORRENCIAS (CLICKUP)
+// OCORRENCIAS - VERSÃO SIMPLIFICADA E ROBUSTA
+// ============================================================================
+
+/**
+ * API Principal: Retorna lista COMPLETA de ocorrências com CACHE
+ * OTIMIZADO: Usa cache de 6 horas + carregamento em lotes
+ */
+function carregarOcorrencias() {
+  try {
+    Logger.log('[carregarOcorrencias] Iniciando...');
+
+    // ✅ TENTA CACHE PRIMEIRO (válido por 6 horas)
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'ocorrencias_completas_v1';
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        Logger.log('[carregarOcorrencias] Cache HIT - ' + parsed.ocorrencias.length + ' registros');
+        return apiResponse(true, parsed, null);
+      } catch(e) {
+        Logger.log('[carregarOcorrencias] Cache inválido, recarregando...');
+      }
+    }
+
+    Logger.log('[carregarOcorrencias] Cache MISS - Carregando da planilha...');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ws = ss.getSheetByName("OCORRENCIAS");
+
+    if (!ws) {
+      Logger.log('[carregarOcorrencias] Aba não encontrada');
+      return apiResponse(true, { ocorrencias: [] }, null);
+    }
+
+    const lastRow = ws.getLastRow();
+    if (lastRow < 2) {
+      Logger.log('[carregarOcorrencias] Aba vazia');
+      return apiResponse(true, { ocorrencias: [] }, null);
+    }
+
+    // ✅ CARREGAMENTO INTELIGENTE EM LOTES
+    const BATCH_SIZE = 100;
+    const NUM_COLS = 20; // Primeiras 20 colunas (suficiente para campos essenciais)
+
+    // Lê cabeçalho uma vez
+    const headers = ws.getRange(1, 1, 1, NUM_COLS).getValues()[0];
+
+    // Mapeamento de colunas
+    const col = {
+      ID: headers.indexOf('ID'),
+      NOME: headers.indexOf('Nome'),
+      STATUS: headers.indexOf('Status'),
+      STATUS_COR: headers.indexOf('Status Cor'),
+      URL: headers.indexOf('URL'),
+      DATA_CRIACAO: headers.indexOf('Data de Criação'),
+      DATA_FECHAMENTO: headers.indexOf('Data de Fechamento'),
+      MOTORISTA: headers.indexOf('MOTORISTA'),
+      PLANO: headers.indexOf('PLANO'),
+      UNIDADE: headers.indexOf('UNIDADE'),
+      VEICULO: headers.indexOf('VEÍCULO'),
+      CLIENTE: headers.indexOf('NOME CLIENTE'),
+      MOTIVO: headers.indexOf('MOTIVO DA OCORRÊNCIA'),
+      CAUSADOR: headers.indexOf('CAUSADOR'),
+      VALOR_NF: headers.indexOf('VALOR NF'),
+      TEXTO: headers.indexOf('TEXTO OCORRÊNCIA')
+    };
+
+    // Processa as linhas (pula o cabeçalho)
+    const ocorrencias = [];
+    for (let i = 1; i < values.length; i++) { // Já limitado a 100 no range
+      const row = values[i];
+
+      // Data de criação
+      let dataCriacao = '';
+      if (col.DATA_CRIACAO !== -1 && row[col.DATA_CRIACAO]) {
+        try {
+          const d = new Date(row[col.DATA_CRIACAO]);
+          dataCriacao = Utilities.formatDate(d, 'GMT-3', 'dd/MM/yyyy HH:mm');
+        } catch(e) {
+          dataCriacao = String(row[col.DATA_CRIACAO]);
+        }
+      }
+
+      // Data de fechamento
+      let dataFechamento = '';
+      if (col.DATA_FECHAMENTO !== -1 && row[col.DATA_FECHAMENTO]) {
+        try {
+          const d = new Date(row[col.DATA_FECHAMENTO]);
+          dataFechamento = Utilities.formatDate(d, 'GMT-3', 'dd/MM/yyyy HH:mm');
+        } catch(e) {
+          dataFechamento = String(row[col.DATA_FECHAMENTO]);
+        }
+      }
+
+      ocorrencias.push({
+        id: col.ID !== -1 ? String(row[col.ID] || '') : '',
+        nome: col.NOME !== -1 ? String(row[col.NOME] || '') : '',
+        status: col.STATUS !== -1 ? String(row[col.STATUS] || '') : '',
+        statusColor: col.STATUS_COR !== -1 ? String(row[col.STATUS_COR] || '') : '',
+        url: col.URL !== -1 ? String(row[col.URL] || '') : '',
+        dataCriacao: dataCriacao,
+        dataFechamento: dataFechamento,
+        motorista: col.MOTORISTA !== -1 ? String(row[col.MOTORISTA] || '') : '',
+        plano: col.PLANO !== -1 ? String(row[col.PLANO] || '') : '',
+        unidade: col.UNIDADE !== -1 ? String(row[col.UNIDADE] || '') : '',
+        veiculo: col.VEICULO !== -1 ? String(row[col.VEICULO] || '') : '',
+        cliente: col.CLIENTE !== -1 ? String(row[col.CLIENTE] || '') : '',
+        motivo: col.MOTIVO !== -1 ? String(row[col.MOTIVO] || '') : '',
+        causador: col.CAUSADOR !== -1 ? String(row[col.CAUSADOR] || '') : '',
+        valorNF: col.VALOR_NF !== -1 ? row[col.VALOR_NF] : '',
+        texto: col.TEXTO !== -1 ? String(row[col.TEXTO] || '').substring(0, 200) : ''
+      });
+    }
+
+    // Ordena por data de criação (mais recente primeiro)
+    ocorrencias.sort((a, b) => {
+      if (a.dataCriacao && b.dataCriacao) {
+        return a.dataCriacao > b.dataCriacao ? -1 : 1;
+      }
+      return 0;
+    });
+
+    Logger.log('[carregarOcorrencias] Sucesso: ' + ocorrencias.length + ' ocorrencias');
+    return apiResponse(true, { ocorrencias: ocorrencias }, null);
+
+  } catch (erro) {
+    Logger.log('[carregarOcorrencias] ERRO: ' + erro.message);
+    const needsAuth = isAuthError(erro);
+    return apiResponse(false, null, {
+      message: needsAuth ? 'Autorização necessária' : erro.message,
+      needsAuth: needsAuth
+    });
+  }
+}
+
+// ============================================================================
+// FUNÇÕES ANTIGAS (MANTER PARA COMPATIBILIDADE)
 // ============================================================================
 function getOcorrenciasData(ss, maxRows) {
+  console.log('[getOcorrenciasData] Iniciando...');
   const ws = ss.getSheetByName("OCORRENCIAS") || ss.getSheetByName("Ocorrencias");
-  if (!ws) return [];
+  if (!ws) {
+    console.warn('[getOcorrenciasData] Aba OCORRENCIAS nao encontrada');
+    return [];
+  }
   const lastRow = ws.getLastRow();
   const lastCol = ws.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return [];
+  console.log('[getOcorrenciasData] lastRow:', lastRow, 'lastCol:', lastCol);
+  if (lastRow < 2 || lastCol < 1) {
+    console.warn('[getOcorrenciasData] Aba vazia ou sem dados');
+    return [];
+  }
 
   const totalRows = lastRow - 1;
   const limit = maxRows && maxRows > 0 ? Math.min(maxRows, totalRows) : totalRows;
@@ -1266,22 +1526,39 @@ function getOcorrenciasData(ss, maxRows) {
     return 0;
   });
 
+  console.log('[getOcorrenciasData] Total de ocorrencias processadas:', ocorrencias.length);
   return ocorrencias;
 }
 
 function getOcorrenciasDataApi() {
+  // ✅ LOG ABSOLUTO - Primeira coisa executada
+  try {
+    Logger.log('[getOcorrenciasDataApi] INICIO ABSOLUTO');
+    console.log('[getOcorrenciasDataApi] INICIO ABSOLUTO');
+  } catch(e) {}
+
+  // ✅ VERIFICAÇÃO DE AUTENTICAÇÃO
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {
+    console.warn('[getOcorrenciasDataApi] Falha na autenticacao:', authProbe.message);
     return apiResponse(false, null, {
       message: authProbe.message,
       needsAuth: authProbe.needsAuth
     });
   }
+
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // ✅ GARANTE QUE getOcorrenciasData SEMPRE RETORNA ARRAY
     const ocorrenciasRaw = getOcorrenciasData(ss, 200);
+
+    // ✅ PROTEÇÃO: Se retornar null/undefined, converte para array vazio
+    const ocorrenciasSafe = Array.isArray(ocorrenciasRaw) ? ocorrenciasRaw : [];
+    console.log('[getOcorrenciasDataApi] ocorrenciasRaw length:', ocorrenciasSafe.length);
+
     const limit = 200;
-    const ocorrencias = ocorrenciasRaw.slice(0, limit).map(o => ({
+    const ocorrencias = ocorrenciasSafe.slice(0, limit).map(o => ({
       id: o.id,
       nome: o.nome,
       status: o.status,
@@ -1300,7 +1577,61 @@ function getOcorrenciasDataApi() {
       causador: o.causador,
       valor: o.valor
     }));
+
+    console.log('[getOcorrenciasDataApi] Retornando', ocorrencias.length, 'ocorrencias');
+
+    // ✅ SEMPRE RETORNA apiResponse com estrutura correta
     return apiResponse(true, { ocorrencias }, null);
+
+  } catch (e) {
+    console.error('[getOcorrenciasDataApi] Erro:', e.message);
+    const needsAuth = isAuthError(e);
+
+    // ✅ SEMPRE RETORNA apiResponse mesmo em caso de erro
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
+  }
+}
+
+function getOcorrenciasDataPageApi(page, pageSize) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
+  }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const p = Math.max(0, parseInt(page || 0, 10));
+    const size = Math.max(1, Math.min(parseInt(pageSize || 100, 10), 100));
+    const maxRows = (p + 1) * size;
+    const ocorrenciasRaw = getOcorrenciasData(ss, maxRows) || [];
+    const start = p * size;
+    const slice = ocorrenciasRaw.slice(start, start + size);
+    const ocorrencias = slice.map(o => ({
+      id: o.id,
+      nome: o.nome,
+      status: o.status,
+      statusColor: o.statusColor,
+      url: o.url,
+      createdAtIso: o.createdAtIso,
+      createdAtDisplay: o.createdAtDisplay,
+      closedAtIso: o.closedAtIso,
+      closedAtDisplay: o.closedAtDisplay,
+      motorista: o.motorista,
+      rota: o.rota,
+      unidade: o.unidade,
+      veiculo: o.veiculo,
+      cliente: o.cliente,
+      motivo: o.motivo,
+      causador: o.causador,
+      valor: o.valor
+    }));
+    const hasMore = ocorrenciasRaw.length > (start + slice.length);
+    return apiResponse(true, { ocorrencias, hasMore, nextPage: p + 1 }, null);
   } catch (e) {
     const needsAuth = isAuthError(e);
     return apiResponse(false, null, {
