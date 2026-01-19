@@ -1724,7 +1724,7 @@ function setClickupStatus(novoStatus) {
 function actionClickup() {
     const driver = state.allDrivers.find(d => String(d.id).trim() === selectedDriverId);
     if(driver && driver.clickupId) {
-        window.open(`https://app.clickup.com/t/${driver.clickupId}`, '_blank');
+        window.open('https://app.clickup.com/t/' + driver.clickupId, '_blank');
     } else {
         alert("⚠️ ID do ClickUp não encontrado para esta rota.");
     }
@@ -1828,11 +1828,11 @@ window.renderDetailedModal = function(id) {
     document.getElementById('mSub').innerText = `${driver.veiculo} (${driver.placa}) - Plano: ${driver.plano}`;
     
     const btnClickup = document.getElementById('btnClickup');
-    if (driver.clickupId) { 
-        btnClickup.href = `https://app.clickup.com/t/${driver.clickupId}`; 
-        btnClickup.style.display = 'inline-flex'; 
-    } else { 
-        btnClickup.style.display = 'none'; 
+    if (driver.clickupId) {
+        btnClickup.href = 'https://app.clickup.com/t/' + driver.clickupId;
+        btnClickup.style.display = 'inline-flex';
+    } else {
+        btnClickup.style.display = 'none';
     }
 
     const content = document.getElementById('mContent');
