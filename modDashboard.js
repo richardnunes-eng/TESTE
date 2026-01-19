@@ -49,6 +49,34 @@
 const SHEET_MAIN = "ENTREGAS";
 const SHEET_GM = "GreenMile";
 const SHEET_MOT = "MOTORISTAS";
+const SHEET_OCORRENCIAS = "OCORRENCIAS";
+const OCORRENCIA_HEADERS = [
+  "ID",
+  "NOME",
+  "STATUS",
+  "STATUS COR",
+  "URL",
+  "DATA DE CRIACAO",
+  "DATA DE FECHAMENTO",
+  "MOTORISTA",
+  "PLANO",
+  "UNIDADE",
+  "VEICULO",
+  "NOME CLIENTE",
+  "MOTIVO DA OCORRENCIA",
+  "CAUSADOR",
+  "VALOR NF",
+  "TEXTO OCORRENCIA",
+  "PLACA",
+  "PERFIL",
+  "MOTIVO ID",
+  "METADADOS",
+  "STOPS",
+  "NOTA FISCAL",
+  "CLIENTE CODIGO",
+  "ENDERECO",
+  "PESO"
+];
 
 const OCORRENCIA_HEADER_CACHE_KEY = "ocorrencias_header_map_v2";
 const OCORRENCIA_HEADER_CACHE_TTL_SEC = 300;
@@ -1887,6 +1915,188 @@ function getOcorrenciasPageApi(pageSize, cursor) {
 // ============================================================================
 // SALVAR OCORRÊNCIA
 // ============================================================================
+function ensureOcorrenciasSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let ws = ss.getSheetByName(SHEET_OCORRENCIAS) || ss.getSheetByName("Ocorrencias");
+  if (!ws) {
+    ws = ss.insertSheet(SHEET_OCORRENCIAS);
+  }
+  const hasHeader = ws.getLastRow() > 0;
+  if (!hasHeader) {
+    ws.getRange(1, 1, 1, OCORRENCIA_HEADERS.length).setValues([OCORRENCIA_HEADERS]);
+  }
+  return ws;
+}
+
+function getOcorrenciasByPlano(plano) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
+  }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ocorrencias = getOcorrenciasData(ss, 1000) || [];
+    const target = normalizarChave(plano || "");
+    const filtered = target
+      ? ocorrencias.filter(o => normalizarChave(o.rota || o.plano || "") === target)
+      : ocorrencias;
+    return apiResponse(true, { ocorrencias: filtered }, null);
+  } catch (e) {
+    const needsAuth = isAuthError(e);
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
+  }
+}
+
+function createOcorrencia(payload) {
+  const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
+  if (!authProbe.ok) {
+    return apiResponse(false, null, {
+      message: authProbe.message,
+      needsAuth: authProbe.needsAuth
+    });
+  }
+  try {
+    if (!payload || typeof payload !== "object") {
+      return apiResponse(false, null, { message: "Payload invalido", needsAuth: false });
+    }
+
+    const plano = String(payload.plano || "").trim();
+    const placa = String(payload.placa || "").trim();
+    const motorista = String(payload.motorista || "").trim();
+    const motivoNome = String(payload.motivoNome || "").trim();
+    const motivoId = String(payload.motivoId || "").trim();
+    const selectedStops = Array.isArray(payload.selectedStops) ? payload.selectedStops : [];
+
+    if (!plano || !placa || !motorista || !motivoNome || !motivoId || selectedStops.length === 0) {
+      return apiResponse(false, null, { message: "Campos obrigatorios faltando", needsAuth: false });
+    }
+
+    const safeText = (value) => {
+      const v = value === undefined || value === null ? "" : String(value).trim();
+      return v ? v : "---";
+    };
+
+    const notas = [];
+    const clientes = [];
+    const clientesCodigo = [];
+    const enderecos = [];
+    const pesos = [];
+    const valores = [];
+    const stopsClean = selectedStops.map(stop => {
+      const nfe = safeText(stop.nfe);
+      const cliente = safeText(stop.cliente);
+      const codigo = safeText(stop.clienteCodigo);
+      const endereco = safeText(stop.enderecoCompleto);
+      const peso = parseNumeroSeguro(stop.peso);
+      const valor = parseNumeroSeguro(stop.valor);
+      notas.push(nfe);
+      clientes.push(cliente);
+      clientesCodigo.push(codigo);
+      enderecos.push(endereco);
+      pesos.push(peso);
+      valores.push(valor);
+      return {
+        cliente: cliente,
+        clienteCodigo: codigo,
+        enderecoCompleto: endereco,
+        nfe: nfe,
+        peso: peso,
+        valor: valor
+      };
+    });
+
+    const joiner = " | ";
+    const notasStr = notas.join(joiner);
+    const clientesStr = clientes.join(joiner);
+    const clientesCodigoStr = clientesCodigo.join(joiner);
+    const enderecosStr = enderecos.join(joiner);
+    const pesoStr = pesos.map(p => (Number.isFinite(p) && p > 0 ? p.toString().replace(".", ",") + " KG" : "---")).join(joiner);
+    const valorStr = valores.map(v => (Number.isFinite(v) && v > 0 ? v.toString().replace(".", ",") : "---")).join(joiner);
+
+    const detalhes = String(payload.detalhes || "").trim();
+    const perfil = String(payload.perfil || "").trim();
+    const metadados = payload.metadados || {};
+
+    const ocorrenciaId = "OCC-" + new Date().getTime();
+    const createdAt = new Date();
+    const status = "ABERTA";
+
+    const ocorrencia = {
+      id: ocorrenciaId,
+      nome: motivoNome,
+      status: status,
+      statusColor: "",
+      url: "",
+      createdAtIso: Utilities.formatDate(createdAt, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"),
+      createdAtDisplay: Utilities.formatDate(createdAt, Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm"),
+      closedAtIso: "",
+      closedAtDisplay: "",
+      motorista: motorista,
+      rota: plano,
+      unidade: "",
+      veiculo: placa,
+      cliente: clientesStr,
+      motivo: motivoNome,
+      causador: "",
+      valor: valorStr,
+      texto: detalhes
+    };
+
+    const ws = ensureOcorrenciasSheet();
+    ws.appendRow([
+      ocorrenciaId,
+      ocorrencia.nome,
+      status,
+      "",
+      "",
+      createdAt,
+      "",
+      motorista,
+      plano,
+      "",
+      placa,
+      clientesStr,
+      motivoNome,
+      "",
+      valorStr,
+      detalhes,
+      placa,
+      perfil,
+      motivoId,
+      JSON.stringify({
+        ...metadados,
+        plano: plano,
+        placa: placa,
+        motorista: motorista,
+        createdAt: createdAt.toISOString()
+      }),
+      JSON.stringify(stopsClean),
+      notasStr,
+      clientesCodigoStr,
+      enderecosStr,
+      pesoStr
+    ]);
+
+    return apiResponse(true, {
+      ocorrenciaId: ocorrenciaId,
+      savedRow: ws.getLastRow(),
+      ocorrencia: ocorrencia
+    }, null);
+  } catch (e) {
+    const needsAuth = isAuthError(e);
+    return apiResponse(false, null, {
+      message: needsAuth ? "Autorize o app para continuar." : e.message,
+      needsAuth: needsAuth
+    });
+  }
+}
+
 function salvarOcorrencia(formData) {
   const authProbe = safeExecute(() => SpreadsheetApp.getActiveSpreadsheet().getId());
   if (!authProbe.ok) {

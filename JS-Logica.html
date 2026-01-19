@@ -3,10 +3,40 @@
 // JS-LOGICA.HTML - VERSÃO CORRIGIDA E OTIMIZADA
 // ============================================================================
 
+const OCC_MOTIVOS = [
+    { label: "ATRASO DEVIDO AO TRÂNSITO", id: "99357952-bcd5-4352-8d4b-5d8be0c72831" },
+    { label: "CARGA MAL PALETIZADA", id: "2744a953-5c3f-4e8a-b999-48dcd4e37624" },
+    { label: "CHAPA", id: "2902a83d-4231-4ed7-af0c-2515325e04a3" },
+    { label: "CLIENTE NÃO LOCALIZADO", id: "24619484-d7ef-4974-ba23-6a0c9046891f" },
+    { label: "CLIENTE SE RECUSOU A ASSINAR O CANHOTO DIGITAL", id: "16585aca-cb50-4d9e-8f3a-e696796038e6" },
+    { label: "CLIENTE SOLICITA XML", id: "b6679600-99d2-4adb-aef6-e76faa22f3a1" },
+    { label: "COLETA DE AVARIA", id: "0824a4fb-e8a5-48ca-a2f3-3af43ace71eb" },
+    { label: "DADOS DO CLIENTE INCORRETOS/INSUFICIENTES", id: "cefea116-84fc-46ed-8565-a359315d4d6d" },
+    { label: "DEMORA NA ENTREGA", id: "3f92e6c3-6fe0-4ae7-8d34-5f346d48a77a" },
+    { label: "DESCARGA PRÓPRIA", id: "72637bd2-2187-49ef-a273-25f63a03b3fe" },
+    { label: "DIÁRIA", id: "b9fab075-220d-4f3c-a008-50cf3b949375" },
+    { label: "ESTABELECIMENTO FECHADO", id: "343b0f18-6303-489f-9b44-c7dc7656a438" },
+    { label: "ESTACIONAMENTO", id: "03a4223d-8333-4661-8fce-dba47a3aec04" },
+    { label: "FALTA DE ACESSO PARA DESCARGA", id: "ebbc023e-6849-4b8a-abcf-f58b4d841868" },
+    { label: "FORA DE ROTA", id: "32f8ed0e-ffa9-4192-8b5c-43b3ace635cd" },
+    { label: "FORA DO HORÁRIO DE ATENDIMENTO", id: "264389de-76f7-4d1a-923b-c8b2f953fcea" },
+    { label: "LOCAL DE DIFÍCIL ACESSO", id: "48d754b0-b924-42cb-9c73-071fd7e244cb" },
+    { label: "MOTORISTA COM PROBLEMA DE SAÚDE", id: "225c0e2f-e099-417f-bbc4-d9567f95e32a" },
+    { label: "PERNOITE", id: "101ff12b-4ac4-4ab1-aaf0-e8f3df997d63" },
+    { label: "PROBLEMA NO APLICATIVO", id: "b58d7909-5300-4e65-bdab-0ad30d705e49" },
+    { label: "PRORROGAÇÃO DE BOLETO", id: "886dc90a-c2ff-46b4-83cc-ecd24f99516a" },
+    { label: "RECUSA PARCIAL", id: "b2f1dedd-d742-4109-8455-6b295cb645c9" },
+    { label: "RECUSA TOTAL", id: "be6ee96b-1d4e-45f9-919f-7695228f3013" },
+    { label: "REEMBOLSO", id: "8027dced-197a-43cc-a23c-62ae2554dbf5" },
+    { label: "SINISTRO", id: "34f65719-371b-4e8e-9eea-5c783e5185a7" },
+    { label: "VOLUME EXCEDENTE", id: "5a3a9eba-5d1b-4f67-9ffd-604e807155ab" }
+];
+
 // === ESTADO GERAL (SINGLE SOURCE OF TRUTH) ===
   let state = {
       allDrivers: [],
       allOccurrences: [],
+      userEmail: '',
       filters: { unidade: new Set(), veiculo: new Set(), status: 'ALL' },
       search: '',
       searchTerms: [],
@@ -31,7 +61,17 @@
       occLoading: false,
       occDone: false,
       occTotalRows: 0,
-      occMeta: null
+      occMeta: null,
+      registrarOcorrencia: {
+          driverId: null,
+          stopList: [],
+          filteredStops: [],
+          selectedStops: new Set(),
+          motivoId: OCC_MOTIVOS[0].id,
+          motivoNome: OCC_MOTIVOS[0].label,
+          details: '',
+          search: ''
+      }
   };
 
   let searchTimeout = null;
@@ -62,10 +102,10 @@ const LOADER_QUOTES = [
     { text: "Tudo o que temos de decidir é o que fazer com o tempo que nos é dado.", author: "J.R.R. Tolkien", book: "O Senhor dos Anéis" },
     { text: "Estratégia sem tática é o caminho mais lento para a vitória. Tática sem estratégia é o ruído antes da derrota.", author: "Sun Tzu", book: "A Arte da Guerra" }
   ];
-    const OCC_WINDOW_SIZE = 300;
-    const OCC_AUTO_SYNC_MS = 30000;
-    let occAutoSyncTimer = null;
-      let autoSyncTimerId = null;
+  const OCC_WINDOW_SIZE = 300;
+  const OCC_AUTO_SYNC_MS = 30000;
+  let occAutoSyncTimer = null;
+    let autoSyncTimerId = null;
   let autoSyncBackoffMs = 60000;
   let loadDataInFlight = false;
   let pendingForceReload = false;
@@ -215,6 +255,7 @@ function checkAuthAndStart(showToastOnOk = false) {
             }
 
             // Sucesso - dados em validation.data (userEmail, env, version, etc)
+            state.userEmail = (validation.data && validation.data.userEmail) ? validation.data.userEmail : '';
             if (showToastOnOk) showToast('Autorizacao confirmada.', 'check_circle');
             startApp();
           })
@@ -1700,6 +1741,341 @@ function renderOcorrenciasTable(list) {
       renderOcorrenciasSection();
   }
 
+// ============================================================================
+// REGISTRAR OCORRENCIA
+// ============================================================================
+function normalizeOccText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+}
+
+function parseOccNumber(value) {
+    if (value === null || value === undefined || value === '') return 0;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const clean = String(value).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+    const parsed = parseFloat(clean);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatOccCurrency(value) {
+    if (!value || !Number.isFinite(value)) return '---';
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatOccPeso(value) {
+    if (!value || !Number.isFinite(value)) return '---';
+    return `${value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} KG`;
+}
+
+function getRegistrarDriver() {
+    const id = state.registrarOcorrencia.driverId || selectedDriverId;
+    if (!id) return null;
+    return state.allDrivers.find(d => String(d.id).trim() === String(id).trim()) || null;
+}
+
+function buildOccStopList(driver) {
+    const stops = Array.isArray(driver.detalhes) ? driver.detalhes : [];
+    return stops.map((s, idx) => ({
+        idx: idx,
+        cliente: String(s.cliente || '').trim() || '---',
+        clienteCodigo: String(s.clienteCodigo || '').trim() || '---',
+        enderecoCompleto: String(s.enderecoCompleto || '').trim() || '---',
+        nfe: String(s.nfe || '').trim() || '---',
+        peso: parseOccNumber(s.peso),
+        valor: parseOccNumber(s.valor)
+    }));
+}
+
+function openRegistrarOcorrencia(driverId) {
+    const targetId = driverId || selectedDriverId;
+    const driver = state.allDrivers.find(d => String(d.id).trim() === String(targetId || '').trim());
+    if (!driver) {
+        showToast('Rota nao encontrada.', 'error');
+        return;
+    }
+
+    state.registrarOcorrencia.driverId = driver.id;
+    state.registrarOcorrencia.stopList = buildOccStopList(driver);
+    state.registrarOcorrencia.filteredStops = [...state.registrarOcorrencia.stopList];
+    state.registrarOcorrencia.selectedStops = new Set();
+    state.registrarOcorrencia.motivoId = OCC_MOTIVOS[0].id;
+    state.registrarOcorrencia.motivoNome = OCC_MOTIVOS[0].label;
+    state.registrarOcorrencia.details = '';
+    state.registrarOcorrencia.search = '';
+
+    const subtitle = document.getElementById('occFormSubtitle');
+    if (subtitle) subtitle.textContent = `${driver.motorista} - Plano ${driver.plano || driver.rota || '--'}`;
+
+    const searchInput = document.getElementById('occStopSearch');
+    if (searchInput) searchInput.value = '';
+    const detalhesEl = document.getElementById('occDetalhes');
+    if (detalhesEl) detalhesEl.value = '';
+
+    const select = document.getElementById('occMotivoSelect');
+    if (select) {
+        select.innerHTML = '';
+        OCC_MOTIVOS.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.label;
+            select.appendChild(opt);
+        });
+        select.value = state.registrarOcorrencia.motivoId;
+    }
+
+    renderOccStopList();
+    updateOccSelectedCount();
+    updateOccPreview();
+
+    document.getElementById('occFormModal')?.classList.add('active');
+}
+
+function closeRegistrarOcorrencia() {
+    document.getElementById('occFormModal')?.classList.remove('active');
+}
+
+function renderOccStopList() {
+    const listEl = document.getElementById('occStopList');
+    if (!listEl) return;
+    const stops = state.registrarOcorrencia.filteredStops || [];
+    const selected = state.registrarOcorrencia.selectedStops;
+    listEl.innerHTML = '';
+
+    if (stops.length === 0) {
+        listEl.innerHTML = '<div class="occ-empty">Nenhum cliente encontrado.</div>';
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+    stops.forEach(stop => {
+        const item = document.createElement('div');
+        const isSelected = selected.has(stop.idx);
+        item.className = `occ-stop-item${isSelected ? ' selected' : ''}`;
+        item.onclick = () => toggleOccStop(stop.idx);
+
+        const check = document.createElement('span');
+        check.className = 'occ-stop-check';
+        check.innerHTML = isSelected ? '<span class="material-icons-round" style="font-size:16px;">check</span>' : '';
+
+        const body = document.createElement('div');
+        body.className = 'occ-stop-body';
+        body.innerHTML = `
+            <div class="occ-stop-title">${stop.cliente}</div>
+            <div class="occ-stop-meta">Cod: ${stop.clienteCodigo} · NF: ${stop.nfe}</div>
+            <div class="occ-stop-meta">${stop.enderecoCompleto}</div>
+        `;
+
+        item.appendChild(check);
+        item.appendChild(body);
+        frag.appendChild(item);
+    });
+    listEl.appendChild(frag);
+}
+
+function onOccStopSearch() {
+    const input = document.getElementById('occStopSearch');
+    state.registrarOcorrencia.search = input ? input.value : '';
+    const term = normalizeOccText(state.registrarOcorrencia.search);
+    const list = state.registrarOcorrencia.stopList || [];
+    if (!term) {
+        state.registrarOcorrencia.filteredStops = [...list];
+    } else {
+        state.registrarOcorrencia.filteredStops = list.filter(s => {
+            const hay = normalizeOccText([s.cliente, s.clienteCodigo, s.nfe].join(' '));
+            return hay.includes(term);
+        });
+    }
+    renderOccStopList();
+}
+
+function toggleOccStop(idx) {
+    const selected = state.registrarOcorrencia.selectedStops;
+    if (selected.has(idx)) selected.delete(idx);
+    else selected.add(idx);
+    renderOccStopList();
+    updateOccSelectedCount();
+    updateOccPreview();
+}
+
+function onOccMotivoChange() {
+    const select = document.getElementById('occMotivoSelect');
+    const value = select ? select.value : '';
+    const motivo = OCC_MOTIVOS.find(m => m.id === value) || OCC_MOTIVOS[0];
+    state.registrarOcorrencia.motivoId = motivo.id;
+    state.registrarOcorrencia.motivoNome = motivo.label;
+    updateOccPreview();
+}
+
+function onOccDetalhesChange() {
+    const detalhesEl = document.getElementById('occDetalhes');
+    state.registrarOcorrencia.details = detalhesEl ? detalhesEl.value : '';
+    updateOccPreview();
+}
+
+function updateOccSelectedCount() {
+    const countEl = document.getElementById('occSelectedCount');
+    if (countEl) countEl.textContent = `Selecionados: ${state.registrarOcorrencia.selectedStops.size}`;
+}
+
+function getSelectedOccStops() {
+    const selected = state.registrarOcorrencia.selectedStops;
+    return (state.registrarOcorrencia.stopList || []).filter(s => selected.has(s.idx));
+}
+
+function updateOccPreview() {
+    const previewEl = document.getElementById('occPreviewText');
+    if (!previewEl) return;
+    const driver = getRegistrarDriver();
+    const selectedStops = getSelectedOccStops();
+    if (!driver || selectedStops.length === 0) {
+        previewEl.textContent = 'Selecione ao menos um cliente.';
+        return;
+    }
+
+    const joiner = ' | ';
+    const notas = selectedStops.map(s => s.nfe || '---').join(joiner);
+    const clientes = selectedStops.map(s => s.cliente || '---').join(joiner);
+    const enderecos = selectedStops.map(s => s.enderecoCompleto || '---').join(joiner);
+    const codigos = selectedStops.map(s => s.clienteCodigo || '---').join(joiner);
+    const pesos = selectedStops.map(s => formatOccPeso(s.peso)).join(joiner);
+    const valores = selectedStops.map(s => formatOccCurrency(s.valor)).join(joiner);
+
+    const lines = [
+        `Nota Fiscal: ${notas}`,
+        `Plano: ${driver.plano || driver.rota || '---'}`,
+        `Placa: ${driver.placa || '---'}`,
+        `Motorista: ${driver.motorista || '---'}`,
+        `Cliente(s): ${clientes}`,
+        `Endereço(s): ${enderecos}`,
+        `Cód. Cliente(s): ${codigos}`,
+        `Perfil: ${driver.perfil || driver.veiculo || '---'}`,
+        `Peso: ${pesos}`,
+        `Valor NFe: ${valores}`,
+        `Motivo: ${state.registrarOcorrencia.motivoNome}`,
+        `Detalhes: ${state.registrarOcorrencia.details || '---'}`
+    ];
+    previewEl.textContent = lines.join('\n');
+}
+
+function setOccFormLoading(isLoading) {
+    const btn = document.getElementById('occConfirmBtn');
+    if (!btn) return;
+    btn.disabled = isLoading;
+    btn.innerHTML = isLoading
+        ? '<span class="material-icons-round">hourglass_top</span> Salvando...'
+        : '<span class="material-icons-round">task_alt</span> Confirmar';
+}
+
+function confirmRegistrarOcorrencia() {
+    const driver = getRegistrarDriver();
+    if (!driver) {
+        showToast('Rota nao encontrada.', 'error');
+        return;
+    }
+    const selectedStops = getSelectedOccStops();
+    if (selectedStops.length === 0) {
+        showToast('Selecione ao menos um cliente.', 'warning');
+        return;
+    }
+    if (!state.registrarOcorrencia.motivoId) {
+        showToast('Selecione o motivo da ocorrencia.', 'warning');
+        return;
+    }
+
+    const payload = {
+        plano: driver.plano || driver.rota || '',
+        placa: driver.placa || '',
+        motorista: driver.motorista || '',
+        perfil: driver.perfil || driver.veiculo || '',
+        motivoNome: state.registrarOcorrencia.motivoNome,
+        motivoId: state.registrarOcorrencia.motivoId,
+        detalhes: state.registrarOcorrencia.details || '',
+        selectedStops: selectedStops.map(s => ({
+            cliente: s.cliente,
+            clienteCodigo: s.clienteCodigo,
+            enderecoCompleto: s.enderecoCompleto,
+            nfe: s.nfe,
+            peso: s.peso,
+            valor: s.valor
+        })),
+        metadados: {
+            rotaId: driver.id || '',
+            planoChave: driver.planoChave || driver.plano || '',
+            userEmail: state.userEmail || ''
+        }
+    };
+
+    setOccFormLoading(true);
+    google.script.run
+        .withSuccessHandler(res => {
+            setOccFormLoading(false);
+            const validation = validateApiResponse(res, 'createOcorrencia');
+            if (!validation.valid) {
+                showToast(validation.error || 'Erro ao salvar ocorrencia.', 'error');
+                return;
+            }
+            showToast('Ocorrencia registrada com sucesso.', 'check_circle');
+            closeRegistrarOcorrencia();
+            loadOcorrenciasByPlano(payload.plano);
+            loadOcorrenciasData(true);
+        })
+        .withFailureHandler(err => {
+            setOccFormLoading(false);
+            showToast('Erro ao salvar ocorrencia.', 'error');
+            console.error('Erro createOcorrencia:', err);
+        })
+        .createOcorrencia(payload);
+}
+
+function loadOcorrenciasByPlano(plano) {
+    const listEl = document.getElementById('driverOccList');
+    if (listEl) listEl.innerHTML = '<div class="occ-empty">Carregando ocorrencias...</div>';
+    google.script.run
+        .withSuccessHandler(res => {
+            const validation = validateApiResponse(res, 'getOcorrenciasByPlano');
+            if (!validation.valid) {
+                renderOcorrenciasByPlano([]);
+                return;
+            }
+            const ocorrencias = (validation.data && validation.data.ocorrencias) ? validation.data.ocorrencias : [];
+            renderOcorrenciasByPlano(ocorrencias);
+        })
+        .withFailureHandler(() => {
+            renderOcorrenciasByPlano([]);
+        })
+        .getOcorrenciasByPlano(plano || '');
+}
+
+function renderOcorrenciasByPlano(list) {
+    const listEl = document.getElementById('driverOccList');
+    const countEl = document.getElementById('driverOccCount');
+    if (!listEl) return;
+    const ordered = list.slice().sort((a, b) => (b.createdAtIso || '').localeCompare(a.createdAtIso || ''));
+    if (countEl) countEl.textContent = ordered.length;
+    if (ordered.length === 0) {
+        listEl.innerHTML = '<div class="occ-empty">Nenhuma ocorrencia registrada para esta rota.</div>';
+        return;
+    }
+    listEl.innerHTML = ordered.map(o => {
+        const status = o.status || 'ABERTA';
+        const created = o.createdAtDisplay || '--';
+        const motivo = o.motivo || o.nome || 'Ocorrencia';
+        const cliente = o.cliente || '--';
+        return `
+            <div class="occ-linked-card">
+                <div class="occ-linked-top">
+                    <span class="status-badge ${getOcorrenciaStatusGroup(o) === 'FINALIZADA' ? 'badge-success' : 'badge-info'}">${status}</span>
+                    <span class="occ-linked-date">${created}</span>
+                </div>
+                <div class="occ-linked-title">${motivo}</div>
+                <div class="occ-linked-meta">${cliente}</div>
+            </div>
+        `;
+    }).join('');
+}
+
 function populateDashUnidadeOptions(drivers) {
     const unidadeEl = document.getElementById('dashUnidade');
     if (!unidadeEl) return;
@@ -2306,6 +2682,7 @@ window.renderDetailedModal = function(id) {
     const driver = state.allDrivers.find(d => String(d.id).trim() === searchId);
     
     if (!driver) return;
+    selectedDriverId = driver.id;
 
     document.getElementById('mTitle').innerText = driver.motorista;
     document.getElementById('mSub').innerText = `${driver.veiculo} (${driver.placa}) - Plano: ${driver.plano}`;
@@ -2317,6 +2694,8 @@ window.renderDetailedModal = function(id) {
     } else {
         btnClickup.style.display = 'none';
     }
+    const btnCreate = document.getElementById('btnCreateOcorrencia');
+    if (btnCreate) btnCreate.style.display = 'inline-flex';
 
     const content = document.getElementById('mContent');
     let htmlBuffer = '';
@@ -2464,8 +2843,19 @@ window.renderDetailedModal = function(id) {
             </div>`;
         });
     }
-    content.innerHTML = htmlBuffer;
+    const occSectionHtml = `
+        <div class="occ-linked">
+            <div class="occ-linked-header">
+                <h4>Ocorrencias desta rota</h4>
+                <span class="occ-linked-count" id="driverOccCount">0</span>
+            </div>
+            <div class="occ-linked-list" id="driverOccList"><div class="occ-empty">Carregando ocorrencias...</div></div>
+        </div>
+    `;
+
+    content.innerHTML = htmlBuffer + occSectionHtml;
     document.getElementById('modal').classList.add('active');
+    loadOcorrenciasByPlano(driver.plano || driver.rota || '');
 };
 
 window.closeModal = function() { 
@@ -2474,3 +2864,4 @@ window.closeModal = function() {
 
 // ============================================================================
 </script>
+

@@ -36,10 +36,53 @@
                     <a id="btnClickup" class="btn-clickup" href="#" target="_blank" style="display:none;">
                         <img src="https://clickup.com/landing/images/logo-clickup_color.svg" width="16" style="filter: brightness(0) invert(1);"> Abrir ClickUp
                     </a>
+                    <button id="btnCreateOcorrencia" class="btn-export" onclick="openRegistrarOcorrencia()" style="display:none;">
+                        <span class="material-icons-round">report_problem</span> Criar ocorrência
+                    </button>
                     <button onclick="closeModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer;"><span class="material-icons-round" style="font-size: 1.5rem;">close</span></button>
                 </div>
             </div>
             <div class="modal-content" id="mContent"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="occFormModal" onclick="if(event.target === this) closeRegistrarOcorrencia()">
+        <div class="modal-box occ-modal">
+            <div class="modal-header">
+                <div>
+                    <h3>Registrar Ocorrência</h3>
+                    <p style="font-size:0.85rem; color:var(--text-muted);" id="occFormSubtitle">Selecione os clientes da rota</p>
+                </div>
+                <button onclick="closeRegistrarOcorrencia()" style="background:none; border:none; color:var(--text-muted); cursor:pointer;"><span class="material-icons-round" style="font-size: 1.5rem;">close</span></button>
+            </div>
+            <div class="occ-modal-body">
+                <div class="occ-list-panel">
+                    <div class="search-wrapper">
+                        <span class="material-icons-round search-icon">search</span>
+                        <input type="text" id="occStopSearch" placeholder="Buscar cliente, código ou NF..." onkeyup="onOccStopSearch()">
+                    </div>
+                    <div class="occ-selected-count" id="occSelectedCount">Selecionados: 0</div>
+                    <div class="occ-stop-list" id="occStopList"></div>
+                </div>
+                <div class="occ-form-panel">
+                    <div class="input-wrapper select-wrapper">
+                        <span class="material-icons-round input-icon">flag</span>
+                        <select id="occMotivoSelect" onchange="onOccMotivoChange()"></select>
+                    </div>
+                    <div class="input-wrapper">
+                        <span class="material-icons-round input-icon">notes</span>
+                        <textarea id="occDetalhes" placeholder="Detalhes da ocorrência..." rows="4" oninput="onOccDetalhesChange()"></textarea>
+                    </div>
+                    <div class="occ-preview">
+                        <div class="occ-preview-title">Preview</div>
+                        <pre id="occPreviewText">Selecione ao menos um cliente.</pre>
+                    </div>
+                </div>
+            </div>
+            <div class="occ-modal-actions">
+                <button class="btn-export" onclick="closeRegistrarOcorrencia()">Cancelar</button>
+                <button class="btn-refresh" id="occConfirmBtn" onclick="confirmRegistrarOcorrencia()"><span class="material-icons-round">task_alt</span> Confirmar</button>
+            </div>
         </div>
     </div>
 
