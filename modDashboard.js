@@ -1301,81 +1301,124 @@ function parseNumeroSeguro(valor) {
     return -1;
   }
 
-  function mapDashboardCols(headers, type) {
-    const map = {
-    PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1,
-    ARR:-1, DEP:-1, STATUS:-1,
-    PESO_P:-1, PESO_A:-1,
-    ID_GM_LOC:-1, CHECKLISTS:-1, TIPO:-1, ID_PAI:-1,
-    VALOR:-1, LOC_KEY:-1,
-    DATA_SAIDA:-1, ID_CLICKUP:-1,
-    UNIDADE:-1, CONTATO:-1, MODELO:-1, PERFIL:-1,
-    DEV_CODE:-1, CLIENTE:-1, SEQ:-1, CLIENT_ID:-1, PARENT_ID:-1,
-    LOC_DESC:-1, LOC_ADDRESS:-1, LOC_CITY:-1, LOC_DISTRICT:-1,
-    STATUS_CLICKUP:-1, STATUS_CLICKUP_COLOR:-1, NOME:-1, DATA_CRIACAO:-1, DATA_ATUALIZACAO:-1,
-    DATA_FECHAMENTO:-1, VALOR_MAIN:-1, PESO_MAIN:-1
+  /**
+ * Normaliza um texto de cabeçalho para fazer o mapeamento.
+ * Remove acentos, caracteres especiais, espaços extras e converte para maiúsculas.
+ * @param {string} header O texto do cabeçalho.
+ * @returns {string} O texto normalizado.
+ * @private
+ */
+function _normalizeHeaderForMap(header) {
+  if (!header || typeof header !== 'string') {
+    return '';
+  }
+  return header
+    .normalize('NFD') // Separa acentos dos caracteres
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .toUpperCase() // Converte para maiúsculas
+    .replace(/[^A-Z0-9\s]/g, '') // Remove caracteres não-alfanuméricos (exceto espaço)
+    .replace(/\s+/g, ' ') // Substitui múltiplos espaços por um único
+    .trim(); // Remove espaços do início e fim
+}
+
+/**
+ * Mapeia as colunas da planilha para um objeto de índices.
+ * A função agora é resiliente a variações nos nomes dos cabeçalhos.
+ * @param {string[]} headers Array com os nomes das colunas.
+ * @param {string} type Tipo de planilha ('MAIN', 'GM', 'MOT').
+ * @returns {Object} Um objeto com os nomes dos campos e seus índices.
+ */
+function mapDashboardCols(headers, type) {
+  // Definições de todas as variações de cabeçalhos esperadas, já normalizadas.
+  const COLUMN_DEFINITIONS = {
+    MAIN: {
+      PLANO: ['PLANO', 'ROTA', 'NOME'],
+      NOME: ['NOME'],
+      PLACA: ['PLACA'],
+      MOTORISTA: ['MOTORISTA'],
+      UNIDADE: ['UNIDADE', 'BASE', 'CD', 'FILIAL'],
+      ID_GM_LOC: ['ID GM LOCALIZACAO'],
+      CHECKLISTS: ['CHECKLISTS', 'CHECKLIST', 'NFE', 'NOTAS'],
+      TIPO: ['TIPO DE TAREFA', 'TIPO'],
+      DATA_SAIDA: ['DATA DE SAIDA'],
+      DATA_CRIACAO: ['DATA DE CRIACAO'],
+      DATA_ATUALIZACAO: ['DATA DE ATUALIZACAO'],
+      DATA_FECHAMENTO: ['DATA DE FECHAMENTO'],
+      ID_CLICKUP: ['ID', 'TASK ID', 'CLICKUP ID'],
+      ID_PAI: ['ID DO PAI', 'PARENT ID'],
+      STATUS_CLICKUP: ['STATUS', 'STATUS CLICKUP', 'SITUACAO'],
+      STATUS_CLICKUP_COLOR: ['STATUS COR', 'STATUS COLOR', 'STATUS CLICKUP COR', 'COR STATUS'],
+      CLIENTE: ['CLIENTE', 'NOME DO CLIENTE'],
+      VALOR_MAIN: ['VALOR'],
+      PESO_MAIN: ['PESO']
+    },
+    MOT: {
+      PLACA: ['PLACA'],
+      MOTORISTA: ['MOTORISTA', 'NOME'],
+      CONTATO: ['CONTATO', 'TELEFONE', 'CELULAR'],
+      MODELO: ['MODELO', 'VEICULO'],
+      PERFIL: ['PERFIL', 'TIPO']
+    },
+    GM: {
+      ROUTE_KEY: ['ROUTE KEY'],
+      ARR: ['STOP ACTUALARRIVAL', 'ACTUALARRIVAL'],
+      DEP: ['STOP ACTUALDEPARTURE', 'ACTUALDEPARTURE'],
+      DEV_CODE: ['UNDELIVERABLECODE', 'DEVOLUCAO'],
+      STATUS: ['STOP DELIVERYSTATUS', 'DELIVERYSTATUS'],
+      CLIENTE: ['STOP LOCATION DESCRIPTION', 'LOCATION DESCRIPTION'],
+      LOC_DESC: ['STOP LOCATION DESCRIPTION', 'LOCATION DESCRIPTION'],
+      LOC_ADDRESS: ['STOP LOCATION ADDRESSLINE1', 'LOCATION ADDRESSLINE1'],
+      LOC_CITY: ['STOP LOCATION CITY', 'LOCATION CITY'],
+      LOC_DISTRICT: ['STOP LOCATION DISTRICT', 'LOCATION DISTRICT'],
+      SEQ: ['STOP PLANNEDSEQUENCENUM', 'PLANNEDSEQUENCENUM'],
+      PESO_P: ['STOP PLANNEDSIZE1', 'PLANNEDSIZE1'],
+      PESO_A: ['STOP ACTUALSIZE1', 'ACTUALSIZE1'],
+      VALOR: ['STOP PLANNEDSIZE3', 'PLANNEDSIZE3'],
+      LOC_KEY: ['STOP LOCATION KEY', 'LOCATION KEY']
+    }
   };
 
-  headers.forEach((h, i) => {
-    const t = String(h || "").trim().toUpperCase();
+  const map = {
+    PLANO:-1, PLACA:-1, MOTORISTA:-1, ROUTE_KEY:-1, ARR:-1, DEP:-1, STATUS:-1,
+    PESO_P:-1, PESO_A:-1, ID_GM_LOC:-1, CHECKLISTS:-1, TIPO:-1, ID_PAI:-1,
+    VALOR:-1, LOC_KEY:-1, DATA_SAIDA:-1, ID_CLICKUP:-1, UNIDADE:-1, CONTATO:-1,
+    MODELO:-1, PERFIL:-1, DEV_CODE:-1, CLIENTE:-1, SEQ:-1, CLIENT_ID:-1, PARENT_ID:-1,
+    LOC_DESC:-1, LOC_ADDRESS:-1, LOC_CITY:-1, LOC_DISTRICT:-1, STATUS_CLICKUP:-1,
+    STATUS_CLICKUP_COLOR:-1, NOME:-1, DATA_CRIACAO:-1, DATA_ATUALIZACAO:-1,
+    DATA_FECHAMENTO:-1, VALOR_MAIN:-1, PESO_MAIN:-1
+  };
+  
+  const definitions = COLUMN_DEFINITIONS[type];
+  if (!definitions) return map;
 
-    // MAIN (Aba ENTREGAS)
-    if (type === 'MAIN') {
-      if (t === 'PLANO' || t === 'ROTA' || t === 'NOME') map.PLANO = i;
-      if (t === 'NOME') map.NOME = i;
-      if (t === 'PLACA') map.PLACA = i;
-      if (t === 'MOTORISTA') map.MOTORISTA = i;
-      if (t === 'UNIDADE' || t === 'BASE' || t === 'CD' || t === 'FILIAL') map.UNIDADE = i;
-      if (t === 'ID GM LOCALIZAÇÃO' || t === 'ID GM LOCALIZACAO' || t === 'ID GM LOCALIZAÇÃO') map.ID_GM_LOC = i;
-      if (t === 'CHECKLISTS' || t === 'CHECKLIST' || t === 'NFE' || t === 'NOTAS') map.CHECKLISTS = i;
-      if (t === 'TIPO DE TAREFA' || t === 'TIPO') map.TIPO = i;
-      if (t === 'DATA DE SAÍDA' || t === 'DATA DE SAIDA') map.DATA_SAIDA = i;
-      if (t === 'DATA DE CRIAÇÃO' || t === 'DATA DE CRIACAO') map.DATA_CRIACAO = i;
-      if (t === 'DATA DE ATUALIZAÇÃO' || t === 'DATA DE ATUALIZACAO') map.DATA_ATUALIZACAO = i;
-      if (t === 'DATA DE FECHAMENTO') map.DATA_FECHAMENTO = i;
-      if (t === 'ID' || t === 'TASK ID' || t === 'CLICKUP ID') map.ID_CLICKUP = i;
-      if (t === 'ID DO PAI' || t === 'PARENT ID') map.ID_PAI = i;
-      if (t === 'STATUS' || t === 'STATUS CLICKUP' || t === 'SITUACAO') map.STATUS_CLICKUP = i;
-      if (t === 'STATUS COR' || t === 'STATUS COLOR' || t === 'STATUS CLICKUP COR' || t === 'COR STATUS') map.STATUS_CLICKUP_COLOR = i;
-      if (t === 'CLIENTE' || t === 'NOME DO CLIENTE') map.CLIENTE = i;
-      if (t.includes('VALOR')) map.VALOR_MAIN = i;
-      if (t.includes('PESO')) map.PESO_MAIN = i;
-    }
+  console.log(`\n🔍 INICIANDO MAPEAMENTO DE COLUNAS PARA TIPO: ${type}`);
+  
+  headers.forEach((originalHeader, index) => {
+    const normalizedHeader = _normalizeHeaderForMap(originalHeader);
+    if (!normalizedHeader) return;
 
-    // MOT (Aba MOTORISTAS)
-    if (type === 'MOT') {
-      if (t === 'PLACA') map.PLACA = i;
-      if (t === 'MOTORISTA' || t === 'NOME') map.MOTORISTA = i;
-      if (t.includes('CONTATO')) map.CONTATO = i;
-      if (t === 'MODELO') map.MODELO = i;
-      if (t.includes('PERFIL')) map.PERFIL = i;
-    }
-
-    // GM (Aba GreenMile)
-    if (type === 'GM') {
-      if (t === 'ROUTE.KEY' || t === 'ROUTE KEY') map.ROUTE_KEY = i;
-      if (t === 'STOP.ACTUALARRIVAL' || t.includes('ACTUALARRIVAL')) map.ARR = i;
-      if (t === 'STOP.ACTUALDEPARTURE' || t.includes('ACTUALDEPARTURE')) map.DEP = i;
-      if (t.includes('UNDELIVERABLECODE') || t.includes('DEVOLUCAO')) map.DEV_CODE = i;
-      if (t === 'STOP.DELIVERYSTATUS' || t.includes('DELIVERYSTATUS')) map.STATUS = i;
-      if (t === 'STOP.LOCATION.DESCRIPTION' || t.includes('LOCATION.DESCRIPTION')) {
-        map.CLIENTE = i;
-        map.LOC_DESC = i;
+    let found = false;
+    for (const key in definitions) {
+      if (definitions[key].includes(normalizedHeader)) {
+        if (map[key] === -1) { // Pega apenas a primeira ocorrência
+          map[key] = index;
+          console.log(`  ✅ MAPA [${type}]: '${originalHeader}' (norm: '${normalizedHeader}') => '${key}' (índice: ${index})`);
+          found = true;
+        }
       }
-      if (t === 'STOP.LOCATION.ADDRESSLINE1' || t.includes('LOCATION.ADDRESSLINE1')) map.LOC_ADDRESS = i;
-      if (t === 'STOP.LOCATION.CITY' || t.includes('LOCATION.CITY')) map.LOC_CITY = i;
-      if (t === 'STOP.LOCATION.DISTRICT' || t.includes('LOCATION.DISTRICT')) map.LOC_DISTRICT = i;
-      if (t === 'STOP.PLANNEDSEQUENCENUM' || t.includes('PLANNEDSEQUENCENUM')) map.SEQ = i;
-      if (t === 'STOP.PLANNEDSIZE1' || t.includes('PLANNEDSIZE1')) map.PESO_P = i;
-      if (t === 'STOP.ACTUALSIZE1' || t.includes('ACTUALSIZE1')) map.PESO_A = i;
-      
-      // ✅ VALOR: stop.plannedSize3 (coluna 15 conforme debug)
-      if (t === 'STOP.PLANNEDSIZE3' || t === 'PLANNEDSIZE3') map.VALOR = i;
-      
-      // ✅ LOCATION.KEY: stop.location.key (coluna 18 conforme debug)
-      if (t === 'STOP.LOCATION.KEY' || t === 'LOCATION.KEY') map.LOC_KEY = i;
     }
   });
+
+  // Log de colunas não encontradas para diagnóstico
+  for (const key in map) {
+    if (map[key] === -1) {
+       // Apenas loga se a definição existir para o tipo, para não poluir
+       if(definitions[key]){
+          console.log(`  ⚠️ ALERTA [${type}]: Coluna para '${key}' não foi encontrada. Variações esperadas: [${definitions[key].join(', ')}]`);
+       }
+    }
+  }
+   console.log(`\n🏁 MAPEAMENTO FINALIZADO PARA TIPO: ${type}`);
 
   return map;
 }
