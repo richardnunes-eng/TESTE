@@ -549,6 +549,7 @@ function removerEmojis(texto) {
 function limparNomeColuna(nome) {
   if (!nome) return "";
   return nome.toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // ✅ Remove acentos
     .replace(REGEX_EMOJI, '') // Remove emojis
     .replace(/[^\w\s\-\(\)\[\]\.]/g, '') // Permite também pontos
     .replace(/\s+/g, ' ') // Normaliza espaços
