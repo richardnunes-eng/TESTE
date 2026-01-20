@@ -27,7 +27,7 @@ function getClickUpToken() {
 const BASE_URL = "https://api.clickup.com/api/v2/list/";
 
 // ✅ DATA MÍNIMA - 1 de Dezembro de 2024 (corrigido)
-const DATA_MINIMA_CLICKUP = new Date("2026-01-19T00:00:00").getTime();
+const DATA_MINIMA_CLICKUP = new Date("2025-01-01T00:00:00").getTime();
 const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
 
 // ✅ STATUS IGNORADOS (não puxa esses)
@@ -268,11 +268,11 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
 // PROCESSAR TAREFA (FUNÇÃO FALTANTE IMPLEMENTADA)
 // ============================================================================
 function processarTarefa(task, campos, nomeAba) {
-  // Filtrar status ignorados (DEBUG: Temporariamente desativado)
+  // Filtrar status ignorados
   const status = task.status ? task.status.status || task.status : "";
-  // if (STATUS_IGNORADOS.includes(status.toLowerCase())) {
-  //   return null;
-  // }
+  if (STATUS_IGNORADOS.includes(status.toLowerCase())) {
+    return null;
+  }
 
   const tarefa = {
     "ID": task.id,
@@ -286,10 +286,12 @@ function processarTarefa(task, campos, nomeAba) {
     "Prioridade": task.priority ? task.priority.priority || "" : "",
     "Tempo Estimado (h)": task.time_estimate ? (task.time_estimate / 3600000).toFixed(2) : "",
     "Tempo Gasto (h)": task.time_spent ? (task.time_spent / 3600000).toFixed(2) : "",
-    "Tipo de Tarefa": task.parent ? "Subtask" : "Tarefa Principal",
+    "Tipo de Tarefa": task.parent ? "Subtask" : "Tarefa Principal",  // ✅ CORRIGIDO!
     "ID do Pai": task.parent || "",
     "Checklists": processarChecklists(task.checklists)
   };
+
+  // ... resto do código continua igual
 
   // Processar custom fields
   if (task.custom_fields && task.custom_fields.length > 0) {
