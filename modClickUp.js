@@ -540,6 +540,7 @@ function converterParaObjetos(values) {
 function removerEmojis(texto) {
   if (!texto) return "";
   return texto.toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // ✅ Remove acentos
     .replace(REGEX_EMOJI, '') // Remove emojis
     .replace(/[^\w\s\-\(\)\[\]]/g, '') // Remove caracteres especiais exceto letras, números, espaços, hífens e parênteses
     .replace(/\s+/g, ' ') // Normaliza espaços
