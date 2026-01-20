@@ -27,7 +27,7 @@ function getClickUpToken() {
 const BASE_URL = "https://api.clickup.com/api/v2/list/";
 
 // ✅ DATA MÍNIMA - 1 de Dezembro de 2024 (corrigido)
-const DATA_MINIMA_CLICKUP = new Date("2025-12-01T00:00:00").getTime();
+const DATA_MINIMA_CLICKUP = new Date("2026-01-19T00:00:00").getTime();
 const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
 
 // ✅ STATUS IGNORADOS (não puxa esses)
