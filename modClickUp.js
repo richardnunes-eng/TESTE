@@ -207,13 +207,13 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
   let page = 0;
   let temMais = true;
 
-  // ✅ MOTORISTAS: Busca TUDO (sem filtro de data na URL)
-  // ✅ ENTREGAS/OCORRENCIAS: Busca só alterações recentes (delta)
+  // ✅ MOTORISTAS/ENTREGAS: Busca TUDO (sem filtro de data na URL)
+  // ✅ OCORRENCIAS: Busca só alterações recentes (delta)
   const urlBase = `${BASE_URL}${listId}/task?archived=false&subtasks=true&include_closed=true`;
 
   while (temMais) {
     let url;
-    if (nomeAba === "MOTORISTAS") {
+    if (nomeAba === "MOTORISTAS" || nomeAba === "ENTREGAS") {
       // Sem filtro de data - puxa TUDO
       url = `${urlBase}&page=${page}`;
     } else {
@@ -268,11 +268,11 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
 // PROCESSAR TAREFA (FUNÇÃO FALTANTE IMPLEMENTADA)
 // ============================================================================
 function processarTarefa(task, campos, nomeAba) {
-  // Filtrar status ignorados
+  // Filtrar status ignorados (DEBUG: Temporariamente desativado)
   const status = task.status ? task.status.status || task.status : "";
-  if (STATUS_IGNORADOS.includes(status.toLowerCase())) {
-    return null;
-  }
+  // if (STATUS_IGNORADOS.includes(status.toLowerCase())) {
+  //   return null;
+  // }
 
   const tarefa = {
     "ID": task.id,
@@ -286,7 +286,7 @@ function processarTarefa(task, campos, nomeAba) {
     "Prioridade": task.priority ? task.priority.priority || "" : "",
     "Tempo Estimado (h)": task.time_estimate ? (task.time_estimate / 3600000).toFixed(2) : "",
     "Tempo Gasto (h)": task.time_spent ? (task.time_spent / 3600000).toFixed(2) : "",
-    "Tipo de Tarefa": task.type ? task.type.name || "" : "",
+    "Tipo de Tarefa": task.parent ? "Subtask" : "Tarefa Principal",
     "ID do Pai": task.parent || "",
     "Checklists": processarChecklists(task.checklists)
   };
@@ -335,12 +335,17 @@ function msToDate(timestamp) {
 
 function processarChecklists(checklists) {
   if (!checklists || checklists.length === 0) return "";
+
+  // Junta os itens de todas as checklists em uma única lista
+  const allItems = checklists.flatMap(c => c.items || []);
   
-  return checklists.map(checklist => {
-    const items = checklist.items || [];
-    const completed = items.filter(item => item.resolved).length;
-    return `${checklist.name}: ${completed}/${items.length}`;
-  }).join(" | ");
+  if (allItems.length === 0) return "";
+
+  // Pega o nome de cada item, remove espaços extras e filtra os que estiverem vazios
+  const itemNames = allItems.map(item => item.name ? item.name.trim() : "").filter(name => name);
+
+  // Junta todos os nomes de itens com ", "
+  return itemNames.join(", ");
 }
 
 function aplicarDeltaNoHistorico(dadosAtuais, novasTarefas, nomeAba) {
@@ -444,67 +449,98 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       let ws = ss.getSheetByName(nomeAba);
-      
-      // Criar aba se não existir
       if (!ws) {
         ws = ss.insertSheet(nomeAba);
         console.log(`[${nomeAba}] ➕ Aba criada`);
       }
-      
-      // --- LÓGICA DE HEADER MELHORADA (para não apagar colunas) ---
+
+      // 1. GERENCIAR HEADERS (preserva colunas existentes)
       let oldHeaders = [];
       if (ws.getLastRow() > 0) {
-        // Pega todos os headers existentes na planilha
         oldHeaders = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
       }
-      
-      // Limpa nomes de headers para garantir a unicidade na comparação
       const oldHeadersClean = oldHeaders.map(h => String(h || "").trim()).filter(h => h);
-      
-      // Combina headers padrão, headers antigos, e novos campos da API
       const newCampos = Array.from(campos.keys());
       const combinedHeadersSet = new Set([...HEADER_PADRAO, ...oldHeadersClean, ...newCampos]);
-      combinedHeadersSet.delete(""); // Garante que não haja headers vazios
-      
+      combinedHeadersSet.delete("");
       const headers = Array.from(combinedHeadersSet);
-      
-      // --- FIM DA LÓGICA DE HEADER ---
 
-      // Limpar APENAS o conteúdo antigo (da linha 2 para baixo), preservando formatação e colunas
+      const currentHeaderString = JSON.stringify(oldHeaders.filter(h => h));
+      const newHeaderString = JSON.stringify(headers.filter(h => oldHeaders.includes(h)));
+      if (currentHeaderString !== newHeaderString || ws.getLastRow() === 0 || oldHeaders.length < headers.length) {
+          if (ws.getLastRow() > 0) {
+              ws.getRange(1, 1, 1, ws.getMaxColumns()).clearContent();
+          }
+          ws.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#f3f3f3');
+          ws.setFrozenRows(1);
+          console.log(`[${nomeAba}] 🔄 Cabeçalhos atualizados.`);
+      }
+      
+      const idColumnIndex = headers.indexOf("ID");
+      if (idColumnIndex === -1) {
+        throw new Error("Coluna 'ID' não encontrada. Abortando para evitar corrupção de dados.");
+      }
+      
+      // Identifica colunas de data para normalização
+      const dateColumnIndexes = headers.map((h, i) => (h.toLowerCase().startsWith("data") ? i : -1)).filter(i => i !== -1);
+
+      // 2. MAPEAR DADOS ATUAIS DA PLANILHA (COM NORMALIZAÇÃO)
+      const sheetDataMap = new Map(); // Map<ID, {rowIndex: number, values: string}>
       if (ws.getLastRow() > 1) {
-        ws.getRange(2, 1, ws.getLastRow() - 1, ws.getLastColumn()).clearContent();
-      }
-      
-      // Re-escrever os cabeçalhos (agora atualizados e combinados)
-      if (headers.length > 0) {
-        // Limpa a primeira linha para garantir que não fiquem headers antigos "órfãos"
-        if (ws.getLastRow() > 0) {
-            ws.getRange(1, 1, 1, ws.getMaxColumns()).clearContent();
-        }
-        
-        ws.getRange(1, 1, 1, headers.length)
-          .setValues([headers])
-          .setFontWeight('bold')
-          .setBackground('#f3f3f3');
-      }
-      
-      // Preparar dados para escrita
-      if (listaFinal.length > 0) {
-        const matriz = listaFinal.map(item => {
-          return headers.map(h => item[h] || "");
+        const sheetValues = ws.getRange(2, 1, ws.getLastRow() - 1, headers.length).getValues();
+        sheetValues.forEach((row, index) => {
+          const id = row[idColumnIndex];
+          if (id) {
+            // Normaliza as datas na linha antes de stringify para uma comparação correta
+            dateColumnIndexes.forEach(colIndex => {
+              if (row[colIndex] instanceof Date) {
+                row[colIndex] = row[colIndex].toLocaleDateString('pt-BR') + " " + row[colIndex].toLocaleTimeString('pt-BR');
+              }
+            });
+            sheetDataMap.set(id, { rowIndex: index + 2, values: JSON.stringify(row) });
+          }
         });
-        
-        // Escrever dados a partir da linha 2
-        ws.getRange(2, 1, matriz.length, headers.length).setValues(matriz);
+      }
+
+      // 3. PROCESSAR MUDANÇAS (UPDATES, INSERTS, DELETES)
+      const newDataSet = new Set(listaFinal.map(item => item.ID));
+      const rowsToInsert = [];
+      const rowsToDelete = [];
+      let updatedCount = 0;
+
+      listaFinal.forEach(item => {
+        const newRowValues = headers.map(h => item[h] || "");
+        if (sheetDataMap.has(item.ID)) {
+          const existing = sheetDataMap.get(item.ID);
+          if (existing.values !== JSON.stringify(newRowValues)) {
+            ws.getRange(existing.rowIndex, 1, 1, headers.length).setValues([newRowValues]);
+            updatedCount++;
+          }
+        } else {
+          rowsToInsert.push(newRowValues);
+        }
+      });
+      
+      if (rowsToInsert.length > 0) {
+        ws.getRange(ws.getLastRow() + 1, 1, rowsToInsert.length, headers.length).setValues(rowsToInsert);
+      }
+
+      sheetDataMap.forEach((existing, id) => {
+        if (!newDataSet.has(id)) {
+          rowsToDelete.push(existing.rowIndex);
+        }
+      });
+
+      if (rowsToDelete.length > 0) {
+        rowsToDelete.sort((a, b) => b - a).forEach(rowIndex => {
+          ws.deleteRow(rowIndex);
+        });
       }
       
-      // Formatação final
-      ws.setFrozenRows(1);
       SpreadsheetApp.flush();
-      
-      console.log(`[${nomeAba}] 💾 Salvo: ${listaFinal.length} registros (sem apagar colunas)`);
+      console.log(`[${nomeAba}] 💾 Sync granular concluído. Inseridos: ${rowsToInsert.length}, Atualizados: ${updatedCount}, Removidos: ${rowsToDelete.length}.`);
       return;
-      
+
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
       if (attempt == 0 && /Sheet\s+\d+\s+not\s+found/i.test(msg)) {
