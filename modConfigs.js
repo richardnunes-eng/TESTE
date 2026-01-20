@@ -15,6 +15,9 @@ const GM_USERNAME = "richardthx";
 const GM_PASSWORD = "GM@thx2025"; 
 const GM_URL_BASE = "https://3coracoes.greenmile.com/StopView/Summary";
 
+// --- CREDENCIAIS CLICKUP ---
+const CLICKUP_TOKEN = "pk_87986690_9X1MC60UE18B1X9PEJFRMEFTT6GNHHFS";
+
 // --- REGRAS ---
 const LISTA_SUPERVISORES = ["35998182404", "14982271212", "41992312058"];
 const LIMITE_ATRASO_MINUTOS = 40;

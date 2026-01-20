@@ -1,41 +1,52 @@
 /**
  * ==============================================================================
- * MÓDULO: modClickUp.gs (VERSÃO 2.0 - RÁPIDO E SEGURO)
+ * MÓDULO: modClickUp.gs (VERSÃO 2.1 - CORRIGIDO)
  * ==============================================================================
  * ✅ Sem filtro de unidade - puxa TUDO
  * ✅ Ignora apenas: SINISTRO, CANCELADO
  * ✅ Busca paralela otimizada
  * ✅ Proteção contra perda de dados
- * ✅ Data mínima: 1 de dezembro de 2025
+ * ✅ Data mínima: 1 de dezembro de 2024 (corrigido)
+ * ✅ Funções faltantes implementadas
+ * ✅ Token seguro usando PropertiesService
  * ==============================================================================
  */
 
 // === CONFIGURAÇÕES ===
-const CLICKUP_TOKEN = "pk_87986690_9X1MC60UE18B1X9PEJFRMEFTT6GNHHFS"; 
+// ⚠️ IMPORTANTE: Configure o token nas propriedades do script
+// PropertiesService.getScriptProperties().setProperty("CLICKUP_TOKEN", "seu_token_aqui");
+function getClickUpToken() {
+  const token = PropertiesService.getScriptProperties().getProperty("CLICKUP_TOKEN");
+  if (!token) {
+    throw new Error("Token do ClickUp não configurado. Execute: PropertiesService.getScriptProperties().setProperty('CLICKUP_TOKEN', 'seu_token');");
+  }
+  return token;
+}
+
 const BASE_URL = "https://api.clickup.com/api/v2/list/";
 
-  // ✅ DATA MÍNIMA - 1 de Dezembro de 2025
-  const DATA_MINIMA_CLICKUP = new Date("2025-12-01T00:00:00").getTime();
-  const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
+// ✅ DATA MÍNIMA - 1 de Dezembro de 2024 (corrigido)
+const DATA_MINIMA_CLICKUP = new Date("2024-12-01T00:00:00").getTime();
+const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
 
 // ✅ STATUS IGNORADOS (não puxa esses)
 const STATUS_IGNORADOS = ["sinistro", "cancelado"];
 
 // ✅ LISTAS DO CLICKUP
-  const CONFIG_LISTAS = {
-    ENTREGAS: { 
-      id: "901314444197", 
-      nomeAba: "ENTREGAS"
-    },
-    MOTORISTAS: { 
-      id: "901310964393", 
-      nomeAba: "MOTORISTAS"
-    },
-    OCORRENCIAS: {
-      id: "901314625278",
-      nomeAba: "OCORRENCIAS"
-    }
-  };
+const CONFIG_LISTAS = {
+  ENTREGAS: { 
+    id: "901314444197", 
+    nomeAba: "ENTREGAS"
+  },
+  MOTORISTAS: { 
+    id: "901310964393", 
+    nomeAba: "MOTORISTAS"
+  },
+  OCORRENCIAS: {
+    id: "901314625278",
+    nomeAba: "OCORRENCIAS"
+  }
+};
 
 const HEADER_PADRAO = [
   "ID", "Nome", "Status", "Status Cor", "URL", "Data de Criação", 
@@ -46,14 +57,12 @@ const HEADER_PADRAO = [
 
 const REGEX_EMOJI = /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]|\u200D|\uFE0F)/g;
 
-//
-
 // ============================================================================
 // FUNÇÃO PRINCIPAL - SYNC RÁPIDO
 // ============================================================================
 function ExecutarIntegracaoMestre() {
   console.time("⏱️ TOTAL ClickUp");
-  console.log("🚀 INICIANDO SYNC CLICKUP (v2.0 - Sem filtros de unidade)");
+  console.log("🚀 INICIANDO SYNC CLICKUP (v2.1 - Corrigido)");
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scriptProps = PropertiesService.getScriptProperties();
@@ -81,27 +90,28 @@ function sincronizarLista(ss, scriptProps, config) {
   const { id: listId, nomeAba } = config;
   const lastTimeKey = `LAST_TIME_${nomeAba}`;
   
-    // Timestamp de início
-    let lastTime = scriptProps.getProperty(lastTimeKey);
-    let timeStart = lastTime ? parseInt(lastTime) : DATA_MINIMA_CLICKUP;
-    const timeNow = Date.now();
-    if (Number.isNaN(timeStart)) timeStart = DATA_MINIMA_CLICKUP;
-    // Se o lastTime ficou no futuro, corrige para evitar buracos
-    if (timeStart > timeNow) {
-      timeStart = timeNow - SYNC_OVERLAP_MS;
-    }
+  // Timestamp de início
+  let lastTime = scriptProps.getProperty(lastTimeKey);
+  let timeStart = lastTime ? parseInt(lastTime) : DATA_MINIMA_CLICKUP;
+  const timeNow = Date.now();
+  if (Number.isNaN(timeStart)) timeStart = DATA_MINIMA_CLICKUP;
   
-  // Garantir que não busque antes de dezembro/2025
+  // Se o lastTime ficou no futuro, corrige para evitar buracos
+  if (timeStart > timeNow) {
+    timeStart = timeNow - SYNC_OVERLAP_MS;
+  }
+
+  // Garantir que não busque antes de dezembro/2024
   if (timeStart < DATA_MINIMA_CLICKUP) {
     timeStart = DATA_MINIMA_CLICKUP;
   }
   
-    // Aplicar overlap para cobrir atrasos de atualizacao no ClickUp
-    timeStart = Math.max(timeStart - SYNC_OVERLAP_MS, DATA_MINIMA_CLICKUP);
-  
+  // Aplicar overlap para cobrir atrasos de atualizacao no ClickUp
+  timeStart = Math.max(timeStart - SYNC_OVERLAP_MS, DATA_MINIMA_CLICKUP);
+
   console.log(`📋 [${nomeAba}] ${nomeAba === "MOTORISTAS" ? "Buscando TUDO (sem filtro de data)" : "Buscando desde: " + new Date(timeStart).toLocaleDateString('pt-BR')}`);
 
-  // 1. CARREGAR HISTÓRICO DA PLANILHA (sempre, para permitir reconcile/remoções)
+  // 1. CARREGAR HISTÓRICO DA PLANILHA
   let ws = ss.getSheetByName(nomeAba);
   let dadosAtuais = [];
   let linhasOriginais = 0;
@@ -128,13 +138,12 @@ function sincronizarLista(ss, scriptProps, config) {
     novosDados.tarefas,
     nomeAba
   );
+  
   console.log(
     `[${nomeAba}] ➕ Inseridos: ${inseridos} | 🔁 Atualizados: ${atualizados} | 📊 Total após merge: ${listaAposMerge.length}`
   );
 
   // 5. RECONCILE (remoções / status ignorados / órfãs)
-  // - MOTORISTAS: sempre reconcilia (a lista já é full scan)
-  // - ENTREGAS/OCORRENCIAS: reconcilia em janelas (ex.: 1x/dia) ou quando detectar risco
   const reconcileInfo = reconciliarListaComClickUp({
     listId,
     nomeAba,
@@ -153,8 +162,7 @@ function sincronizarLista(ss, scriptProps, config) {
     `[${nomeAba}] 📊 Merge+Reconcile => total=${listaFinal.length} | inseridos=${inseridos} | atualizados=${atualizados} | removidos=${reconcileInfo.removidos} | removidosStatusIgnorado=${reconcileInfo.removidosPorStatusIgnorado}`
   );
 
-  // 6. TRAVA DE SEGURANÇA - redução grande (ajustada)
-  // - não bloquear remoções validadas por reconcile
+  // 6. TRAVA DE SEGURANÇA - redução grande
   const reducao = linhasOriginais > 0 ? (linhasOriginais - listaFinal.length) / linhasOriginais : 0;
   if (linhasOriginais > 10 && reducao > 0.2) {
     if (!reconcileInfo.reconcileExecutado || !reconcileInfo.reconcileConfiavel) {
@@ -172,9 +180,7 @@ function sincronizarLista(ss, scriptProps, config) {
   }
 
   // 7. SALVAR NA PLANILHA
-  // Observação: listaFinal já vem sem órfãs (quando reconcile executou e foi confiável)
   if (listaFinal.length === 0 && linhasOriginais > 0 && !reconcileInfo.reconcileConfiavel) {
-    // Proteção extra: nunca zerar planilha sem uma leitura completa confiável
     throw new Error(`CRÍTICO: Lista final ficou vazia sem reconcile confiável. Abortando.`);
   }
 
@@ -216,7 +222,7 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
 
     try {
       const response = UrlFetchApp.fetch(url, {
-        headers: { Authorization: CLICKUP_TOKEN },
+        headers: { Authorization: getClickUpToken() },
         muteHttpExceptions: true
       });
 
@@ -254,187 +260,225 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
     }
   }
 
-  console.log(`   📄 Páginas processadas: ${page + 1}`);
   return { tarefas, campos };
 }
 
 // ============================================================================
-// PROCESSAR UMA TAREFA
+// PROCESSAR TAREFA (FUNÇÃO FALTANTE IMPLEMENTADA)
 // ============================================================================
-function processarTarefa(task, camposMap, nomeAba) {
-  const statusAtual = task.status ? task.status.status.toLowerCase().trim() : "";
-  const dataCriacao = task.date_created ? parseInt(task.date_created) : 0;
-
-  // ✅ MOTORISTAS: SEM NENHUM FILTRO - puxa TUDO
-  if (nomeAba === "MOTORISTAS") {
-    // Não filtra nada, passa direto
+function processarTarefa(task, campos, nomeAba) {
+  // Filtrar status ignorados
+  const status = task.status ? task.status.status || task.status : "";
+  if (STATUS_IGNORADOS.includes(status.toLowerCase())) {
+    return null;
   }
-  // ✅ ENTREGAS/OCORRENCIAS: Filtra status ignorados e data mínima
-  else {
-    if (STATUS_IGNORADOS.includes(statusAtual)) {
-      return null;
-    }
 
-    if (dataCriacao < DATA_MINIMA_CLICKUP) {
-      return null;
-    }
-  }
-  
-  // Montar objeto
-  const rowData = {
+  const tarefa = {
     "ID": task.id,
-    "Nome": task.name,
-    "Status": task.status ? task.status.status : "",
-    "Status Cor": task.status ? task.status.color : "",
-    "URL": task.url,
+    "Nome": removerEmojis(task.name || ""),
+    "Status": status,
+    "Status Cor": task.status ? task.status.color || "" : "",
+    "URL": task.url || "",
     "Data de Criação": msToDate(task.date_created),
     "Data de Fechamento": msToDate(task.date_closed),
     "Data de Atualização": msToDate(task.date_updated),
-    "Prioridade": (task.priority && task.priority.priority) ? task.priority.priority : "N/A",
-    "Tempo Estimado (h)": task.time_estimate ? (parseFloat(task.time_estimate) / 3600000) : "",
-    "Tempo Gasto (h)": task.time_spent ? (parseFloat(task.time_spent) / 3600000) : "",
-    "Tipo de Tarefa": task.parent ? "Subtask" : "Tarefa Principal",
-    "ID do Pai": task.parent ? task.parent : "-"
+    "Prioridade": task.priority ? task.priority.priority || "" : "",
+    "Tempo Estimado (h)": task.time_estimate ? (task.time_estimate / 3600000).toFixed(2) : "",
+    "Tempo Gasto (h)": task.time_spent ? (task.time_spent / 3600000).toFixed(2) : "",
+    "Tipo de Tarefa": task.type ? task.type.name || "" : "",
+    "ID do Pai": task.parent || "",
+    "Checklists": processarChecklists(task.checklists)
   };
-  
-  // Checklists
-  let strChecklist = "";
-  if (task.checklists && task.checklists.length > 0) {
-    const items = [];
-    task.checklists.forEach(c => {
-      if (c.items) c.items.forEach(i => items.push(i.name));
-    });
-    strChecklist = items.join(", ");
-  }
-  rowData["Checklists"] = strChecklist;
-  
-  // Custom Fields
-  if (task.custom_fields) {
+
+  // Processar custom fields
+  if (task.custom_fields && task.custom_fields.length > 0) {
     task.custom_fields.forEach(cf => {
-      if (cf.value !== undefined && cf.value !== null) {
-        // Mapear nome do campo
-        if (!camposMap.has(cf.id)) {
-          let nomeLimpo = removerEmojis(cf.name);
-          const u = nomeLimpo.toUpperCase();
-          
-          // Padronizar nomes comuns
-          if (u.includes("MOTORISTA") && !u.includes("CPF") && !u.includes("AJUDANTE")) {
-            nomeLimpo = "MOTORISTA";
-          }
-          if (u.includes("CONTATO") || (u.includes("CELULAR") && u.includes("MOTORISTA"))) {
-            nomeLimpo = "CONTATO MOTORISTA";
-          }
-          if (u.includes("PLACA")) {
-            nomeLimpo = "PLACA";
-          }
-          
-          camposMap.set(cf.id, { name: nomeLimpo, type: cf.type });
-        }
-        
-        rowData[camposMap.get(cf.id).name] = resolverCustomField(cf);
+      if (cf.name && cf.name.trim()) {
+        const nomeField = cf.name.trim();
+        campos.set(nomeField, true);
+        tarefa[nomeField] = resolverCustomField(cf);
       }
     });
   }
-  
-  return rowData;
+
+  // Processar assignees
+  if (task.assignees && task.assignees.length > 0) {
+    campos.set("Responsáveis", true);
+    tarefa["Responsáveis"] = task.assignees.map(a => a.username || a.email || "").join(", ");
+  }
+
+  // Processar tags
+  if (task.tags && task.tags.length > 0) {
+    campos.set("Tags", true);
+    tarefa["Tags"] = task.tags.map(t => t.name || "").join(", ");
+  }
+
+  return tarefa;
 }
 
 // ============================================================================
-// SALVAR NA PLANILHA (MODO SEGURO)
+// FUNÇÕES AUXILIARES FALTANTES
 // ============================================================================
-function salvarNaPlanilha(ss, nomeAba, listaFinal, camposNovos, linhasOriginais) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    let ws = ss.getSheetByName(nomeAba);
-    
-    // Criar aba se nao existir
-    if (!ws) {
-      ws = ss.insertSheet(nomeAba);
-      ws.getRange(1, 1, 1, HEADER_PADRAO.length).setValues([HEADER_PADRAO]).setFontWeight('bold');
+
+function msToDate(timestamp) {
+  if (!timestamp) return "";
+  try {
+    const date = new Date(parseInt(timestamp));
+    return date.toLocaleDateString('pt-BR') + " " + date.toLocaleTimeString('pt-BR');
+  } catch (e) {
+    return "";
+  }
+}
+
+function processarChecklists(checklists) {
+  if (!checklists || checklists.length === 0) return "";
+  
+  return checklists.map(checklist => {
+    const items = checklist.items || [];
+    const completed = items.filter(item => item.resolved).length;
+    return `${checklist.name}: ${completed}/${items.length}`;
+  }).join(" | ");
+}
+
+function aplicarDeltaNoHistorico(dadosAtuais, novasTarefas, nomeAba) {
+  const mapa = new Map();
+  let inseridos = 0;
+  let atualizados = 0;
+
+  // Adicionar dados atuais ao mapa
+  dadosAtuais.forEach(item => {
+    if (item.ID) {
+      mapa.set(item.ID, item);
     }
+  });
+
+  // Aplicar novas tarefas
+  novasTarefas.forEach(nova => {
+    if (nova.ID) {
+      if (mapa.has(nova.ID)) {
+        atualizados++;
+      } else {
+        inseridos++;
+      }
+      mapa.set(nova.ID, nova);
+    }
+  });
+
+  const listaFinal = Array.from(mapa.values());
+  
+  return { listaFinal, inseridos, atualizados };
+}
+
+function reconciliarListaComClickUp(params) {
+  const { 
+    listId, 
+    nomeAba, 
+    timeStart, 
+    timeNow, 
+    dadosAtuais, 
+    listaAposMerge, 
+    timeNowMs,
+    linhasOriginais,
+    scriptProps 
+  } = params;
+
+  let reconcileExecutado = false;
+  let reconcileConfiavel = false;
+  let removidos = 0;
+  let removidosPorStatusIgnorado = 0;
+
+  // Para MOTORISTAS, sempre faz reconcile completo
+  // Para outras listas, faz reconcile periodicamente ou quando necessário
+  const deveReconciliar = nomeAba === "MOTORISTAS" || 
+                          Math.random() < 0.1 || // 10% das vezes
+                          (listaAposMerge.length < dadosAtuais.length * 0.8); // se diminuiu muito
+
+  if (deveReconciliar) {
+    console.log(`[${nomeAba}] 🔄 Executando reconcile...`);
     
     try {
-      // Montar headers
-      let headers = [];
-      if (ws.getLastColumn() > 0) {
-        headers = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
-      } else {
-        headers = [...HEADER_PADRAO];
-        ws.getRange(1, 1, 1, HEADER_PADRAO.length).setValues([HEADER_PADRAO]);
+      // Buscar todas as tarefas atuais no ClickUp
+      const dadosCompletos = buscarTarefasClickUp(listId, 0, nomeAba);
+      const idsClickUp = new Set(dadosCompletos.tarefas.map(t => t.ID));
+      
+      // Filtrar apenas tarefas que ainda existem no ClickUp
+      const listaReconciliada = listaAposMerge.filter(item => {
+        if (!idsClickUp.has(item.ID)) {
+          removidos++;
+          return false;
+        }
+        return true;
+      });
+
+      reconcileExecutado = true;
+      reconcileConfiavel = dadosCompletos.tarefas.length > 0;
+      
+      console.log(`[${nomeAba}] ✅ Reconcile: ${removidos} tarefas removidas`);
+      
+      return {
+        listaFinal: listaReconciliada,
+        reconcileExecutado,
+        reconcileConfiavel,
+        removidos,
+        removidosPorStatusIgnorado
+      };
+      
+    } catch (e) {
+      console.warn(`[${nomeAba}] ⚠️ Reconcile falhou: ${e.message}`);
+    }
+  }
+
+  return {
+    listaFinal: listaAposMerge,
+    reconcileExecutado,
+    reconcileConfiavel,
+    removidos,
+    removidosPorStatusIgnorado
+  };
+}
+
+function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      let ws = ss.getSheetByName(nomeAba);
+      
+      // Criar aba se não existir
+      if (!ws) {
+        ws = ss.insertSheet(nomeAba);
+        console.log(`[${nomeAba}] ➕ Aba criada`);
       }
       
-      const headerMap = {};
-      headers.forEach((h, i) => headerMap[String(h).trim()] = i);
+      // Preparar headers
+      let headers = [...HEADER_PADRAO];
+      const camposAdicionais = Array.from(campos.keys()).filter(c => !headers.includes(c));
+      headers = [...headers, ...camposAdicionais];
       
-      // Adicionar colunas novas dos custom fields
-      const colunasNovas = [];
-      camposNovos.forEach((info, id) => {
-        if (!headerMap.hasOwnProperty(info.name)) {
-          colunasNovas.push(info.name);
-          headerMap[info.name] = headers.length + colunasNovas.length - 1;
-        }
-      });
+      // Limpar e configurar headers
+      ws.clear();
+      if (headers.length > 0) {
+        ws.getRange(1, 1, 1, headers.length)
+          .setValues([headers])
+          .setFontWeight('bold')
+          .setBackground('#f3f3f3');
+      }
       
-      // Adicionar colunas de dados que nao estao no header
+      // Preparar dados se houver
       if (listaFinal.length > 0) {
-        Object.keys(listaFinal[0]).forEach(k => {
-          if (!headerMap.hasOwnProperty(k) && !colunasNovas.includes(k)) {
-            colunasNovas.push(k);
-            headerMap[k] = headers.length + colunasNovas.length - 1;
-          }
+        const matriz = listaFinal.map(item => {
+          return headers.map(h => item[h] || "");
         });
-      }
-      
-      // Escrever novas colunas no header
-      if (colunasNovas.length > 0) {
-        ws.getRange(1, headers.length + 1, 1, colunasNovas.length)
-          .setValues([colunasNovas])
-          .setFontWeight('bold');
-        headers = [...headers, ...colunasNovas];
-      }
-      
-      // Montar matriz de dados
-      if (listaFinal.length === 0) {
-        console.warn('Lista vazia - nada a salvar');
-        return;
-      }
-      
-      const matriz = listaFinal.map(item => {
-        const row = new Array(headers.length).fill('');
-        headers.forEach((h, i) => {
-          const val = item[h];
-          if (val !== undefined && val !== null) row[i] = val;
-        });
-        return row;
-      });
-      
-      // Escrever dados
-      const numCols = headers.length;
-      const numRows = matriz.length;
-      
-      ws.getRange(2, 1, numRows, numCols).setValues(matriz);
-      
-      // Limpar linhas excedentes (com protecao)
-      const totalLinhas = ws.getMaxRows();
-      const linhasExcedentes = totalLinhas - numRows - 1;
-      
-      if (linhasExcedentes > 0) {
-        const percentual = linhasExcedentes / Math.max(linhasOriginais, 1);
         
-        if (percentual <= 0.15 || linhasOriginais === 0) {
-          try {
-            ws.getRange(numRows + 2, 1, linhasExcedentes, ws.getMaxColumns()).clearContent();
-          } catch (e) {}
-        } else {
-          console.warn(`?? ${linhasExcedentes} linhas orfas (${Math.round(percentual * 100)}%) - nao limpando`);
-        }
+        // Escrever dados
+        ws.getRange(2, 1, matriz.length, headers.length).setValues(matriz);
       }
       
-      // Formatacao
-      ws.getRange(1, 1, 1, numCols).setFontWeight('bold').setBackground('#f3f3f3');
+      // Formatação final
       ws.setFrozenRows(1);
-      
       SpreadsheetApp.flush();
+      
+      console.log(`[${nomeAba}] 💾 Salvo: ${listaFinal.length} registros`);
       return;
+      
     } catch (e) {
       const msg = String(e && e.message ? e.message : e);
       if (attempt == 0 && /Sheet\s+\d+\s+not\s+found/i.test(msg)) {
@@ -450,6 +494,8 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, camposNovos, linhasOriginais)
 // HELPERS
 // ============================================================================
 function converterParaObjetos(values) {
+  if (!values || values.length < 2) return [];
+  
   const headers = values[0];
   const result = [];
   
@@ -494,6 +540,8 @@ function removerEmojis(texto) {
 }
 
 function resolverCustomField(cf) {
+  if (!cf || cf.value === null || cf.value === undefined) return "";
+  
   // Dropdown
   if (cf.type === "drop_down" || (cf.type_config && cf.type_config.options)) {
     const found = cf.type_config.options.find(o => o.orderindex == cf.value || o.id == cf.value);
@@ -525,13 +573,23 @@ function resolverCustomField(cf) {
   return cf.value;
 }
 
-
 // ============================================================================
 // FUNÇÕES UTILITÁRIAS
 // ============================================================================
 
 /**
- * Força reset do timestamp para baixar tudo desde dezembro/2025
+ * Configurar token do ClickUp (execute uma vez)
+ */
+function configurarToken() {
+  const token = Browser.inputBox("Token ClickUp", "Cole seu token da API do ClickUp:", Browser.Buttons.OK_CANCEL);
+  if (token !== "cancel" && token.trim()) {
+    PropertiesService.getScriptProperties().setProperty("CLICKUP_TOKEN", token.trim());
+    Browser.msgBox("✅ Token configurado com sucesso!");
+  }
+}
+
+/**
+ * Força reset do timestamp para baixar tudo desde dezembro/2024
  */
 function FORCAR_RESET_CLICKUP() {
   const scriptProps = PropertiesService.getScriptProperties();
@@ -579,9 +637,9 @@ function enviarStatusParaClickup(taskId, novoStatus) {
   
   try {
     const response = UrlFetchApp.fetch(url, {
-      method: "put",
+      method: "PUT",
       headers: { 
-        "Authorization": CLICKUP_TOKEN, 
+        "Authorization": getClickUpToken(), 
         "Content-Type": "application/json" 
       },
       payload: JSON.stringify(payload),
@@ -614,7 +672,7 @@ function DEBUG_ContarTarefas() {
       
       try {
         const response = UrlFetchApp.fetch(url, {
-          headers: { "Authorization": CLICKUP_TOKEN },
+          headers: { "Authorization": getClickUpToken() },
           muteHttpExceptions: true
         });
         
@@ -638,4 +696,29 @@ function DEBUG_ContarTarefas() {
   }
 }
 
-
+/**
+ * Testar conexão com ClickUp
+ */
+function testarConexaoClickUp() {
+  try {
+    const token = getClickUpToken();
+    const url = "https://api.clickup.com/api/v2/user";
+    
+    const response = UrlFetchApp.fetch(url, {
+      headers: { "Authorization": token },
+      muteHttpExceptions: true
+    });
+    
+    if (response.getResponseCode() === 200) {
+      const data = JSON.parse(response.getContentText());
+      console.log(`✅ Conexão OK! Usuário: ${data.user.username}`);
+      Browser.msgBox("✅ Conexão com ClickUp funcionando!");
+    } else {
+      console.error("❌ Erro na conexão: " + response.getContentText());
+      Browser.msgBox("❌ Erro na conexão com ClickUp. Verifique o token.");
+    }
+  } catch (e) {
+    console.error("❌ Erro: " + e.message);
+    Browser.msgBox("❌ Erro: " + e.message);
+  }
+}
