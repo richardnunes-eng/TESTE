@@ -451,27 +451,50 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
         console.log(`[${nomeAba}] ➕ Aba criada`);
       }
       
-      // Preparar headers
-      let headers = [...HEADER_PADRAO];
-      const camposAdicionais = Array.from(campos.keys()).filter(c => !headers.includes(c));
-      headers = [...headers, ...camposAdicionais];
+      // --- LÓGICA DE HEADER MELHORADA (para não apagar colunas) ---
+      let oldHeaders = [];
+      if (ws.getLastRow() > 0) {
+        // Pega todos os headers existentes na planilha
+        oldHeaders = ws.getRange(1, 1, 1, ws.getLastColumn()).getValues()[0];
+      }
       
-      // Limpar e configurar headers
-      ws.clear();
+      // Limpa nomes de headers para garantir a unicidade na comparação
+      const oldHeadersClean = oldHeaders.map(h => String(h || "").trim()).filter(h => h);
+      
+      // Combina headers padrão, headers antigos, e novos campos da API
+      const newCampos = Array.from(campos.keys());
+      const combinedHeadersSet = new Set([...HEADER_PADRAO, ...oldHeadersClean, ...newCampos]);
+      combinedHeadersSet.delete(""); // Garante que não haja headers vazios
+      
+      const headers = Array.from(combinedHeadersSet);
+      
+      // --- FIM DA LÓGICA DE HEADER ---
+
+      // Limpar APENAS o conteúdo antigo (da linha 2 para baixo), preservando formatação e colunas
+      if (ws.getLastRow() > 1) {
+        ws.getRange(2, 1, ws.getLastRow() - 1, ws.getLastColumn()).clearContent();
+      }
+      
+      // Re-escrever os cabeçalhos (agora atualizados e combinados)
       if (headers.length > 0) {
+        // Limpa a primeira linha para garantir que não fiquem headers antigos "órfãos"
+        if (ws.getLastRow() > 0) {
+            ws.getRange(1, 1, 1, ws.getMaxColumns()).clearContent();
+        }
+        
         ws.getRange(1, 1, 1, headers.length)
           .setValues([headers])
           .setFontWeight('bold')
           .setBackground('#f3f3f3');
       }
       
-      // Preparar dados se houver
+      // Preparar dados para escrita
       if (listaFinal.length > 0) {
         const matriz = listaFinal.map(item => {
           return headers.map(h => item[h] || "");
         });
         
-        // Escrever dados
+        // Escrever dados a partir da linha 2
         ws.getRange(2, 1, matriz.length, headers.length).setValues(matriz);
       }
       
@@ -479,7 +502,7 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
       ws.setFrozenRows(1);
       SpreadsheetApp.flush();
       
-      console.log(`[${nomeAba}] 💾 Salvo: ${listaFinal.length} registros`);
+      console.log(`[${nomeAba}] 💾 Salvo: ${listaFinal.length} registros (sem apagar colunas)`);
       return;
       
     } catch (e) {
