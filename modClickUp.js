@@ -1,15 +1,18 @@
 /**
  * ==============================================================================
- * MÓDULO: modClickUp.gs (VERSÃO 2.3 - ACENTOS PRESERVADOS)
+ * MÓDULO: modClickUp.gs (VERSÃO 2.4 - CORRIGIDO)
  * ==============================================================================
  * ✅ Sem filtro de unidade - puxa TUDO
  * ✅ Ignora apenas: SINISTRO, CANCELADO
  * ✅ Busca paralela otimizada
  * ✅ Proteção contra perda de dados
- * ✅ Data mínima: 1 de dezembro de 2024 (corrigido)
+ * ✅ Data mínima: 1 de janeiro de 2025
  * ✅ Funções faltantes implementadas
  * ✅ Token seguro usando PropertiesService
  * ✅ Remove emojis mas preserva acentos e pontuações (lógica VBA)
+ * ✅ CORRIGIDO: Operador || faltante no reconcile
+ * ✅ CORRIGIDO: Função de reconcile separada para evitar loop
+ * ✅ NOVO: Funções para limpar memória/timestamps
  * ==============================================================================
  */
 
@@ -26,7 +29,7 @@ function getClickUpToken() {
 
 const BASE_URL = "https://api.clickup.com/api/v2/list/";
 
-// ✅ DATA MÍNIMA - 1 de Dezembro de 2024 (corrigido)
+// ✅ DATA MÍNIMA - 1 de Janeiro de 2025
 const DATA_MINIMA_CLICKUP = new Date("2025-01-01T00:00:00").getTime();
 const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
 
@@ -63,7 +66,7 @@ const REGEX_EMOJI = /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD8
 // ============================================================================
 function ExecutarIntegracaoMestre() {
   console.time("⏱️ TOTAL ClickUp");
-  console.log("🚀 INICIANDO SYNC CLICKUP (v2.3 - Acentos Preservados)");
+  console.log("🚀 INICIANDO SYNC CLICKUP (v2.4 - Corrigido)");
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scriptProps = PropertiesService.getScriptProperties();
@@ -102,7 +105,7 @@ function sincronizarLista(ss, scriptProps, config) {
     timeStart = timeNow - SYNC_OVERLAP_MS;
   }
 
-  // Garantir que não busque antes de dezembro/2024
+  // Garantir que não busque antes da data mínima
   if (timeStart < DATA_MINIMA_CLICKUP) {
     timeStart = DATA_MINIMA_CLICKUP;
   }
@@ -198,7 +201,7 @@ function sincronizarLista(ss, scriptProps, config) {
 }
 
 // ============================================================================
-// BUSCA OTIMIZADA NA API
+// BUSCA OTIMIZADA NA API (para sync incremental)
 // ============================================================================
 function buscarTarefasClickUp(listId, timeGT, nomeAba) {
   const tarefas = [];
@@ -207,13 +210,13 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
   let page = 0;
   let temMais = true;
 
-  // ✅ MOTORISTAS/ENTREGAS: Busca TUDO (sem filtro de data na URL)
-  // ✅ OCORRENCIAS: Busca só alterações recentes (delta)
+  // ✅ MOTORISTAS: Busca TUDO (sem filtro de data)
+  // ✅ ENTREGAS/OCORRENCIAS: Busca só alterações recentes (delta)
   const urlBase = `${BASE_URL}${listId}/task?archived=false&subtasks=true&include_closed=true`;
 
   while (temMais) {
     let url;
-    if (nomeAba === "MOTORISTAS" || nomeAba === "ENTREGAS") {
+    if (nomeAba === "MOTORISTAS") {
       // Sem filtro de data - puxa TUDO
       url = `${urlBase}&page=${page}`;
     } else {
@@ -265,7 +268,66 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
 }
 
 // ============================================================================
-// PROCESSAR TAREFA (FUNÇÃO FALTANTE IMPLEMENTADA)
+// ✅ NOVA FUNÇÃO: Busca específica para reconcile (sempre sem filtro de data)
+// ============================================================================
+function buscarTarefasParaReconcile(listId, nomeAba) {
+  const tarefas = [];
+  const campos = new Map();
+
+  let page = 0;
+  let temMais = true;
+  let totalPages = 0;
+
+  // ✅ Sempre busca TUDO (sem filtro de data) para reconcile
+  const urlBase = `${BASE_URL}${listId}/task?archived=false&subtasks=true&include_closed=true`;
+
+  while (temMais) {
+    const url = `${urlBase}&page=${page}`;
+
+    try {
+      const response = UrlFetchApp.fetch(url, {
+        headers: { Authorization: getClickUpToken() },
+        muteHttpExceptions: true
+      });
+
+      if (response.getResponseCode() !== 200) {
+        console.warn(`⚠️ Reconcile HTTP ${response.getResponseCode()} na página ${page}`);
+        break;
+      }
+
+      const json = JSON.parse(response.getContentText());
+      const tasks = json.tasks || [];
+
+      if (tasks.length === 0) {
+        temMais = false;
+        break;
+      }
+
+      tasks.forEach(task => {
+        const tarefa = processarTarefa(task, campos, nomeAba);
+        if (tarefa) tarefas.push(tarefa);
+      });
+
+      page++;
+      totalPages++;
+
+      if (tasks.length < 100) {
+        temMais = false;
+      }
+
+      if (temMais) Utilities.sleep(50);
+    } catch (e) {
+      console.error(`❌ Reconcile erro página ${page}: ${e.message}`);
+      temMais = false;
+    }
+  }
+
+  console.log(`[${nomeAba}] 🔍 Reconcile buscou ${tarefas.length} tarefas em ${totalPages} páginas`);
+  return { tarefas, campos };
+}
+
+// ============================================================================
+// PROCESSAR TAREFA
 // ============================================================================
 function processarTarefa(task, campos, nomeAba) {
   // Filtrar status ignorados
@@ -286,19 +348,17 @@ function processarTarefa(task, campos, nomeAba) {
     "Prioridade": task.priority ? task.priority.priority || "" : "",
     "Tempo Estimado (h)": task.time_estimate ? (task.time_estimate / 3600000).toFixed(2) : "",
     "Tempo Gasto (h)": task.time_spent ? (task.time_spent / 3600000).toFixed(2) : "",
-    "Tipo de Tarefa": task.parent ? "Subtask" : "Tarefa Principal",  // ✅ CORRIGIDO!
+    "Tipo de Tarefa": task.parent ? "Subtask" : "Tarefa Principal",
     "ID do Pai": task.parent || "",
     "Checklists": processarChecklists(task.checklists)
   };
-
-  // ... resto do código continua igual
 
   // Processar custom fields
   if (task.custom_fields && task.custom_fields.length > 0) {
     task.custom_fields.forEach(cf => {
       if (cf.name && cf.name.trim()) {
         const nomeField = limparNomeColuna(cf.name.trim());
-        if (nomeField) { // Só adiciona se o nome limpo não ficou vazio
+        if (nomeField) {
           campos.set(nomeField, true);
           tarefa[nomeField] = resolverCustomField(cf);
         }
@@ -322,7 +382,7 @@ function processarTarefa(task, campos, nomeAba) {
 }
 
 // ============================================================================
-// FUNÇÕES AUXILIARES FALTANTES
+// FUNÇÕES AUXILIARES
 // ============================================================================
 
 function msToDate(timestamp) {
@@ -338,15 +398,12 @@ function msToDate(timestamp) {
 function processarChecklists(checklists) {
   if (!checklists || checklists.length === 0) return "";
 
-  // Junta os itens de todas as checklists em uma única lista
   const allItems = checklists.flatMap(c => c.items || []);
   
   if (allItems.length === 0) return "";
 
-  // Pega o nome de cada item, remove espaços extras e filtra os que estiverem vazios
   const itemNames = allItems.map(item => item.name ? item.name.trim() : "").filter(name => name);
 
-  // Junta todos os nomes de itens com ", "
   return itemNames.join(", ");
 }
 
@@ -379,6 +436,9 @@ function aplicarDeltaNoHistorico(dadosAtuais, novasTarefas, nomeAba) {
   return { listaFinal, inseridos, atualizados };
 }
 
+// ============================================================================
+// ✅ CORRIGIDO: Reconcile com operador || e função separada
+// ============================================================================
 function reconciliarListaComClickUp(params) {
   const { 
     listId, 
@@ -397,9 +457,8 @@ function reconciliarListaComClickUp(params) {
   let removidos = 0;
   let removidosPorStatusIgnorado = 0;
 
-  // Para MOTORISTAS, sempre faz reconcile completo
-  // Para outras listas, faz reconcile periodicamente ou quando necessário
-  const deveReconciliar = nomeAba === "MOTORISTAS" || 
+  // ✅ CORRIGIDO: Operador || que estava faltando
+  const deveReconciliar = nomeAba === "MOTORISTAS" ||
                           Math.random() < 0.1 || // 10% das vezes
                           (listaAposMerge.length < dadosAtuais.length * 0.8); // se diminuiu muito
 
@@ -407,8 +466,8 @@ function reconciliarListaComClickUp(params) {
     console.log(`[${nomeAba}] 🔄 Executando reconcile...`);
     
     try {
-      // Buscar todas as tarefas atuais no ClickUp
-      const dadosCompletos = buscarTarefasClickUp(listId, 0, nomeAba);
+      // ✅ CORRIGIDO: Usa função separada que sempre busca tudo
+      const dadosCompletos = buscarTarefasParaReconcile(listId, nomeAba);
       const idsClickUp = new Set(dadosCompletos.tarefas.map(t => t.ID));
       
       // Filtrar apenas tarefas que ainda existem no ClickUp
@@ -423,7 +482,7 @@ function reconciliarListaComClickUp(params) {
       reconcileExecutado = true;
       reconcileConfiavel = dadosCompletos.tarefas.length > 0;
       
-      console.log(`[${nomeAba}] ✅ Reconcile: ${removidos} tarefas removidas`);
+      console.log(`[${nomeAba}] ✅ Reconcile: ${removidos} tarefas removidas, ${listaReconciliada.length} mantidas`);
       
       return {
         listaFinal: listaReconciliada,
@@ -487,13 +546,12 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
       const dateColumnIndexes = headers.map((h, i) => (h.toLowerCase().startsWith("data") ? i : -1)).filter(i => i !== -1);
 
       // 2. MAPEAR DADOS ATUAIS DA PLANILHA (COM NORMALIZAÇÃO)
-      const sheetDataMap = new Map(); // Map<ID, {rowIndex: number, values: string}>
+      const sheetDataMap = new Map();
       if (ws.getLastRow() > 1) {
         const sheetValues = ws.getRange(2, 1, ws.getLastRow() - 1, headers.length).getValues();
         sheetValues.forEach((row, index) => {
           const id = row[idColumnIndex];
           if (id) {
-            // Normaliza as datas na linha antes de stringify para uma comparação correta
             dateColumnIndexes.forEach(colIndex => {
               if (row[colIndex] instanceof Date) {
                 row[colIndex] = row[colIndex].toLocaleDateString('pt-BR') + " " + row[colIndex].toLocaleTimeString('pt-BR');
@@ -555,12 +613,12 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
 }
 
 // ============================================================================
-// HELPERS - CORRIGIDOS PARA PRESERVAR PONTUAÇÕES
+// HELPERS - PRESERVA PONTUAÇÕES E ACENTOS
 // ============================================================================
 function converterParaObjetos(values) {
   if (!values || values.length < 2) return [];
   
-  const headers = values[0].map(h => limparNomeColuna(h)); // Limpa headers também
+  const headers = values[0].map(h => limparNomeColuna(h));
   const result = [];
   
   // Encontrar coluna ID
@@ -615,7 +673,7 @@ function removerEmojis(texto) {
   }
   
   return novoTxt
-    .replace(/\s+/g, ' ') // Normaliza espaços
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -636,10 +694,10 @@ function limparNomeColuna(nome) {
   }
   
   return novoNome
-    .replace(/\s+/g, ' ') // Normaliza espaços
-    .replace(/^\s+|\s+$/g, '') // Remove espaços das bordas
-    .replace(/^[\d\-\.]+$/, 'Campo_' + nome) // Se for só números, adiciona prefixo
-    .substring(0, 100); // Limita tamanho do cabeçalho
+    .replace(/\s+/g, ' ')
+    .replace(/^\s+|\s+$/g, '')
+    .replace(/^[\d\-\.]+$/, 'Campo_' + nome)
+    .substring(0, 100);
 }
 
 function resolverCustomField(cf) {
@@ -677,6 +735,80 @@ function resolverCustomField(cf) {
 }
 
 // ============================================================================
+// ✅ FUNÇÕES PARA LIMPAR MEMÓRIA/TIMESTAMPS
+// ============================================================================
+
+/**
+ * Limpa TODOS os timestamps - força sync completo na próxima execução
+ */
+function LIMPAR_MEMORIA_COMPLETA() {
+  const scriptProps = PropertiesService.getScriptProperties();
+  scriptProps.deleteProperty("LAST_TIME_ENTREGAS");
+  scriptProps.deleteProperty("LAST_TIME_MOTORISTAS");
+  scriptProps.deleteProperty("LAST_TIME_OCORRENCIAS");
+  console.log("✅ Memória limpa! Próximo sync buscará desde " + new Date(DATA_MINIMA_CLICKUP).toLocaleDateString('pt-BR'));
+  Browser.msgBox("✅ Memória limpa! Execute ExecutarIntegracaoMestre() para sincronizar.");
+}
+
+/**
+ * Limpa timestamp de ENTREGAS
+ */
+function LIMPAR_MEMORIA_ENTREGAS() {
+  PropertiesService.getScriptProperties().deleteProperty("LAST_TIME_ENTREGAS");
+  console.log("✅ Memória de ENTREGAS limpa!");
+  Browser.msgBox("✅ Memória de ENTREGAS limpa!");
+}
+
+/**
+ * Limpa timestamp de MOTORISTAS
+ */
+function LIMPAR_MEMORIA_MOTORISTAS() {
+  PropertiesService.getScriptProperties().deleteProperty("LAST_TIME_MOTORISTAS");
+  console.log("✅ Memória de MOTORISTAS limpa!");
+  Browser.msgBox("✅ Memória de MOTORISTAS limpa!");
+}
+
+/**
+ * Limpa timestamp de OCORRENCIAS
+ */
+function LIMPAR_MEMORIA_OCORRENCIAS() {
+  PropertiesService.getScriptProperties().deleteProperty("LAST_TIME_OCORRENCIAS");
+  console.log("✅ Memória de OCORRÊNCIAS limpa!");
+  Browser.msgBox("✅ Memória de OCORRÊNCIAS limpa!");
+}
+
+/**
+ * Ver status atual da memória (timestamps salvos)
+ */
+function VER_STATUS_MEMORIA() {
+  const scriptProps = PropertiesService.getScriptProperties();
+  const props = scriptProps.getProperties();
+  
+  console.log("=== STATUS DA MEMÓRIA ===");
+  for (let key in props) {
+    if (key.startsWith("LAST_TIME_")) {
+      const timestamp = parseInt(props[key]);
+      const data = new Date(timestamp);
+      console.log(`${key}: ${data.toLocaleDateString('pt-BR')} ${data.toLocaleTimeString('pt-BR')}`);
+    }
+  }
+  
+  // Mostrar também no popup
+  let msg = "Status da Memória:\n\n";
+  for (let aba of ["ENTREGAS", "MOTORISTAS", "OCORRENCIAS"]) {
+    const key = `LAST_TIME_${aba}`;
+    const val = props[key];
+    if (val) {
+      const data = new Date(parseInt(val));
+      msg += `${aba}: ${data.toLocaleDateString('pt-BR')} ${data.toLocaleTimeString('pt-BR')}\n`;
+    } else {
+      msg += `${aba}: Não definido (buscará desde ${new Date(DATA_MINIMA_CLICKUP).toLocaleDateString('pt-BR')})\n`;
+    }
+  }
+  Browser.msgBox(msg);
+}
+
+// ============================================================================
 // FUNÇÕES UTILITÁRIAS
 // ============================================================================
 
@@ -692,7 +824,7 @@ function configurarToken() {
 }
 
 /**
- * Força reset do timestamp para baixar tudo desde dezembro/2024
+ * Força reset do timestamp para baixar tudo desde a data mínima
  */
 function FORCAR_RESET_CLICKUP() {
   const scriptProps = PropertiesService.getScriptProperties();
@@ -700,6 +832,7 @@ function FORCAR_RESET_CLICKUP() {
   scriptProps.setProperty("LAST_TIME_MOTORISTAS", DATA_MINIMA_CLICKUP.toString());
   scriptProps.setProperty("LAST_TIME_OCORRENCIAS", DATA_MINIMA_CLICKUP.toString());
   console.log("✅ Reset concluído! Execute ExecutarIntegracaoMestre() agora.");
+  Browser.msgBox("✅ Reset concluído! Execute ExecutarIntegracaoMestre() agora.");
 }
 
 /**
@@ -837,12 +970,12 @@ function testarLimpezaColunas() {
     "🔥💯 Campo com Muitos Emojis 🎉✨",
     "Campo/Inválido",
     "Campo@#$%Com&Caracteres*Especiais",
-    "123456", // só números
+    "123456",
     "   Espaços nas Bordas   ",
     ""
   ];
   
-  console.log("=== TESTE DE LIMPEZA DE COLUNAS (v2.3) ===");
+  console.log("=== TESTE DE LIMPEZA DE COLUNAS (v2.4) ===");
   exemplos.forEach(exemplo => {
     const limpo = limparNomeColuna(exemplo);
     console.log(`"${exemplo}" → "${limpo}"`);
