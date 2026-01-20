@@ -1930,11 +1930,12 @@ function ensureOcorrenciasSheet() {
 }
 
 const OCC_CLICKUP_FIELDS = {
-  MOTIVO: "abac1b68-5d67-4715-adfc-094c09838527",
-  CAUSADOR: "4c968015-edd9-4e6c-9214-b94e91d2080e",
-  DESCRICAO: "236b2c56-26e4-4418-8622-0c3a86c0651c",
-  CUSTO: "b5ea9afc-d3c3-46e7-8c89-fb3a1aea62e2"
+  MOTIVO: "abac1b68-5d67-4715-adfc-094c09838527",    // 🔵 MOTIVO DA OCORRÊNCIA
+  CAUSADOR: "4c968015-edd9-4e6c-9214-b94e91d2080e",  // 👤 CAUSADOR
+  DESCRICAO: "236b2c56-26e4-4418-8622-0c3a86c0651c", // 🔵 OBSERVAÇÃO (Text)
+  CUSTO: "b5ea9afc-d3c3-46e7-8c89-fb3a1aea62e2"      // 🟢 VALOR DO REEMBOLSO (Short Text)
 };
+
 
 const OCC_LINK_CONFIG = {
   FIELD_ID: "6622150e-d78d-414c-a9c5-ebf052f58974",

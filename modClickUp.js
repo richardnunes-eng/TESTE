@@ -9,6 +9,7 @@
  * ✅ Data mínima: 1 de dezembro de 2024 (corrigido)
  * ✅ Funções faltantes implementadas
  * ✅ Token seguro usando PropertiesService
+ * ✅ Remove emojis e caracteres especiais dos cabeçalhos
  * ==============================================================================
  */
 
@@ -294,9 +295,11 @@ function processarTarefa(task, campos, nomeAba) {
   if (task.custom_fields && task.custom_fields.length > 0) {
     task.custom_fields.forEach(cf => {
       if (cf.name && cf.name.trim()) {
-        const nomeField = cf.name.trim();
-        campos.set(nomeField, true);
-        tarefa[nomeField] = resolverCustomField(cf);
+        const nomeField = limparNomeColuna(cf.name.trim());
+        if (nomeField) { // Só adiciona se o nome limpo não ficou vazio
+          campos.set(nomeField, true);
+          tarefa[nomeField] = resolverCustomField(cf);
+        }
       }
     });
   }
@@ -496,7 +499,7 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
 function converterParaObjetos(values) {
   if (!values || values.length < 2) return [];
   
-  const headers = values[0];
+  const headers = values[0].map(h => limparNomeColuna(h)); // Limpa headers também
   const result = [];
   
   // Encontrar coluna ID
@@ -536,7 +539,22 @@ function converterParaObjetos(values) {
 
 function removerEmojis(texto) {
   if (!texto) return "";
-  return texto.toString().replace(REGEX_EMOJI, '').replace(/\s+/g, ' ').trim();
+  return texto.toString()
+    .replace(REGEX_EMOJI, '') // Remove emojis
+    .replace(/[^\w\s\-\(\)\[\]]/g, '') // Remove caracteres especiais exceto letras, números, espaços, hífens e parênteses
+    .replace(/\s+/g, ' ') // Normaliza espaços
+    .trim();
+}
+
+function limparNomeColuna(nome) {
+  if (!nome) return "";
+  return nome.toString()
+    .replace(REGEX_EMOJI, '') // Remove emojis
+    .replace(/[^\w\s\-\(\)\[\]\.]/g, '') // Permite também pontos
+    .replace(/\s+/g, ' ') // Normaliza espaços
+    .replace(/^\s+|\s+$/g, '') // Remove espaços das bordas
+    .replace(/^[\d\-\.]+$/, 'Campo_' + nome) // Se for só números, adiciona prefixo
+    .substring(0, 100); // Limita tamanho do cabeçalho
 }
 
 function resolverCustomField(cf) {
@@ -721,4 +739,27 @@ function testarConexaoClickUp() {
     console.error("❌ Erro: " + e.message);
     Browser.msgBox("❌ Erro: " + e.message);
   }
+}
+
+/**
+ * Testar limpeza de nomes de colunas
+ */
+function testarLimpezaColunas() {
+  const exemplos = [
+    "📅 Data de Entrega",
+    "🚚 Motorista Responsável",
+    "⭐ Prioridade!!!",
+    "🔥💯 Campo com Muitos Emojis 🎉✨",
+    "Campo/Inválido",
+    "Campo@#$%Com&Caracteres*Especiais",
+    "123456", // só números
+    "   Espaços nas Bordas   ",
+    ""
+  ];
+  
+  console.log("=== TESTE DE LIMPEZA DE COLUNAS ===");
+  exemplos.forEach(exemplo => {
+    const limpo = limparNomeColuna(exemplo);
+    console.log(`"${exemplo}" → "${limpo}"`);
+  });
 }
