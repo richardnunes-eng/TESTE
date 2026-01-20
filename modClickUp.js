@@ -46,6 +46,8 @@ const HEADER_PADRAO = [
 
 const REGEX_EMOJI = /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF]|\u200D|\uFE0F)/g;
 
+//
+
 // ============================================================================
 // FUNÇÃO PRINCIPAL - SYNC RÁPIDO
 // ============================================================================
@@ -99,22 +101,11 @@ function sincronizarLista(ss, scriptProps, config) {
   
   console.log(`📋 [${nomeAba}] ${nomeAba === "MOTORISTAS" ? "Buscando TUDO (sem filtro de data)" : "Buscando desde: " + new Date(timeStart).toLocaleDateString('pt-BR')}`);
 
-  // 1. BUSCAR DADOS DA API
-  const novosDados = buscarTarefasClickUp(listId, timeStart, nomeAba);
-  
-  if (novosDados.tarefas.length === 0) {
-    console.log(`[${nomeAba}] ✅ Nenhuma alteração.`);
-    scriptProps.setProperty(lastTimeKey, timeNow.toString());
-    return;
-  }
-  
-  console.log(`[${nomeAba}] 📥 ${novosDados.tarefas.length} tarefas encontradas`);
-
-  // 2. CARREGAR HISTÓRICO DA PLANILHA
+  // 1. CARREGAR HISTÓRICO DA PLANILHA (sempre, para permitir reconcile/remoções)
   let ws = ss.getSheetByName(nomeAba);
   let dadosAtuais = [];
   let linhasOriginais = 0;
-  
+
   if (ws && ws.getLastRow() > 1) {
     const valores = ws.getDataRange().getValues();
     linhasOriginais = valores.length - 1;
@@ -122,40 +113,81 @@ function sincronizarLista(ss, scriptProps, config) {
     console.log(`[${nomeAba}] 📚 Histórico: ${dadosAtuais.length} registros`);
   }
 
-  // 3. TRAVA DE SEGURANÇA - Leitura falhou
+  // 2. TRAVA DE SEGURANÇA - Leitura falhou
   if (linhasOriginais > 0 && dadosAtuais.length === 0) {
     throw new Error(`CRÍTICO: Falha ao ler planilha ${nomeAba}. Abortando.`);
   }
 
-  // 4. MERGE (Histórico + Novos)
-  const mapaGeral = new Map();
-  
-  // Adiciona histórico
-  dadosAtuais.forEach(d => {
-    if (d["ID"]) mapaGeral.set(String(d["ID"]), d);
-  });
-  
-  // Adiciona/sobrescreve com novos
-  novosDados.tarefas.forEach(d => {
-    if (d["ID"]) mapaGeral.set(String(d["ID"]), d);
-  });
-  
-  const listaFinal = Array.from(mapaGeral.values());
-  
-  console.log(`[${nomeAba}] 📊 Total após merge: ${listaFinal.length}`);
+  // 3. BUSCAR DELTA (rápido)
+  const novosDados = buscarTarefasClickUp(listId, timeStart, nomeAba);
+  console.log(`[${nomeAba}] 📥 Delta: ${novosDados.tarefas.length} tarefas retornadas`);
 
-  // 5. TRAVA DE SEGURANÇA - Lista diminuiu muito
-  if (linhasOriginais > 10 && listaFinal.length < linhasOriginais * 0.8) {
-    throw new Error(`CRÍTICO: Lista diminuiu de ${linhasOriginais} para ${listaFinal.length}. Abortando.`);
+  // 4. MERGE (Histórico + Delta)
+  const { listaFinal: listaAposMerge, inseridos, atualizados } = aplicarDeltaNoHistorico(
+    dadosAtuais,
+    novosDados.tarefas,
+    nomeAba
+  );
+  console.log(
+    `[${nomeAba}] ➕ Inseridos: ${inseridos} | 🔁 Atualizados: ${atualizados} | 📊 Total após merge: ${listaAposMerge.length}`
+  );
+
+  // 5. RECONCILE (remoções / status ignorados / órfãs)
+  // - MOTORISTAS: sempre reconcilia (a lista já é full scan)
+  // - ENTREGAS/OCORRENCIAS: reconcilia em janelas (ex.: 1x/dia) ou quando detectar risco
+  const reconcileInfo = reconciliarListaComClickUp({
+    listId,
+    nomeAba,
+    timeStart,
+    timeNow,
+    dadosAtuais,
+    listaAposMerge,
+    timeNowMs: timeNow,
+    linhasOriginais,
+    scriptProps
+  });
+
+  const listaFinal = reconcileInfo.listaFinal;
+
+  console.log(
+    `[${nomeAba}] 📊 Merge+Reconcile => total=${listaFinal.length} | inseridos=${inseridos} | atualizados=${atualizados} | removidos=${reconcileInfo.removidos} | removidosStatusIgnorado=${reconcileInfo.removidosPorStatusIgnorado}`
+  );
+
+  // 6. TRAVA DE SEGURANÇA - redução grande (ajustada)
+  // - não bloquear remoções validadas por reconcile
+  const reducao = linhasOriginais > 0 ? (linhasOriginais - listaFinal.length) / linhasOriginais : 0;
+  if (linhasOriginais > 10 && reducao > 0.2) {
+    if (!reconcileInfo.reconcileExecutado || !reconcileInfo.reconcileConfiavel) {
+      throw new Error(
+        `CRÍTICO: Lista diminuiu de ${linhasOriginais} para ${listaFinal.length} (${Math.round(
+          reducao * 100
+        )}%). Reconcile não foi confiável/executado. Abortando.`
+      );
+    }
+    console.warn(
+      `[${nomeAba}] ⚠️ Redução alta (${Math.round(
+        reducao * 100
+      )}%), porém validada por reconcile. Prosseguindo com escrita.`
+    );
   }
 
-  // 6. SALVAR NA PLANILHA
+  // 7. SALVAR NA PLANILHA
+  // Observação: listaFinal já vem sem órfãs (quando reconcile executou e foi confiável)
+  if (listaFinal.length === 0 && linhasOriginais > 0 && !reconcileInfo.reconcileConfiavel) {
+    // Proteção extra: nunca zerar planilha sem uma leitura completa confiável
+    throw new Error(`CRÍTICO: Lista final ficou vazia sem reconcile confiável. Abortando.`);
+  }
+
   salvarNaPlanilha(ss, nomeAba, listaFinal, novosDados.campos, linhasOriginais);
-  
-  // 7. ATUALIZAR TIMESTAMP
+
+  // 8. ATUALIZAR TIMESTAMP
   scriptProps.setProperty(lastTimeKey, timeNow.toString());
-  
-  console.log(`[${nomeAba}] ✅ Concluído! Total: ${listaFinal.length}`);
+
+  if (novosDados.tarefas.length === 0 && reconcileInfo.removidos === 0) {
+    console.log(`[${nomeAba}] ✅ Nenhuma alteração (delta vazio e reconcile sem remoções).`);
+  } else {
+    console.log(`[${nomeAba}] ✅ Concluído! Total: ${listaFinal.length}`);
+  }
 }
 
 // ============================================================================
@@ -164,65 +196,64 @@ function sincronizarLista(ss, scriptProps, config) {
 function buscarTarefasClickUp(listId, timeGT, nomeAba) {
   const tarefas = [];
   const campos = new Map();
-  
+
   let page = 0;
   let temMais = true;
-  
+
   // ✅ MOTORISTAS: Busca TUDO (sem filtro de data na URL)
-  // ✅ ENTREGAS: Busca só alterações recentes
+  // ✅ ENTREGAS/OCORRENCIAS: Busca só alterações recentes (delta)
   const urlBase = `${BASE_URL}${listId}/task?archived=false&subtasks=true&include_closed=true`;
-  
+
   while (temMais) {
     let url;
     if (nomeAba === "MOTORISTAS") {
       // Sem filtro de data - puxa TUDO
       url = `${urlBase}&page=${page}`;
     } else {
-      // Com filtro de data
+      // Com filtro de data (delta)
       url = `${urlBase}&page=${page}&date_updated_gt=${timeGT}`;
     }
-    
+
     try {
       const response = UrlFetchApp.fetch(url, {
-        headers: { "Authorization": CLICKUP_TOKEN },
+        headers: { Authorization: CLICKUP_TOKEN },
         muteHttpExceptions: true
       });
-      
+
       if (response.getResponseCode() !== 200) {
         console.warn(`⚠️ HTTP ${response.getResponseCode()} na página ${page}`);
         break;
       }
-      
+
       const json = JSON.parse(response.getContentText());
       const tasks = json.tasks || [];
-      
+
       if (tasks.length === 0) {
         temMais = false;
         break;
       }
-      
+
       // Processar tarefas
       tasks.forEach(task => {
         const tarefa = processarTarefa(task, campos, nomeAba);
         if (tarefa) tarefas.push(tarefa);
       });
-      
+
       page++;
-      
+
       // Se veio menos de 100, é a última página
       if (tasks.length < 100) {
         temMais = false;
       }
-      
+
       // Pequeno delay para não sobrecarregar a API
       if (temMais) Utilities.sleep(50);
-      
     } catch (e) {
       console.error(`❌ Erro página ${page}: ${e.message}`);
       temMais = false;
     }
   }
-  
+
   console.log(`   📄 Páginas processadas: ${page + 1}`);
   return { tarefas, campos };
 }
@@ -233,19 +264,17 @@ function buscarTarefasClickUp(listId, timeGT, nomeAba) {
 function processarTarefa(task, camposMap, nomeAba) {
   const statusAtual = task.status ? task.status.status.toLowerCase().trim() : "";
   const dataCriacao = task.date_created ? parseInt(task.date_created) : 0;
-  
+
   // ✅ MOTORISTAS: SEM NENHUM FILTRO - puxa TUDO
   if (nomeAba === "MOTORISTAS") {
     // Não filtra nada, passa direto
-  } 
-  // ✅ ENTREGAS: Filtra apenas status e data
+  }
+  // ✅ ENTREGAS/OCORRENCIAS: Filtra status ignorados e data mínima
   else {
-    // Filtro de status ignorados (só ENTREGAS)
     if (STATUS_IGNORADOS.includes(statusAtual)) {
       return null;
     }
-    
-    // Filtro de data de criação (só ENTREGAS)
+
     if (dataCriacao < DATA_MINIMA_CLICKUP) {
       return null;
     }
@@ -496,10 +525,6 @@ function resolverCustomField(cf) {
   return cf.value;
 }
 
-function msToDate(ms) {
-  if (!ms || ms == 0) return "";
-  return new Date(Number(ms));
-}
 
 // ============================================================================
 // FUNÇÕES UTILITÁRIAS
