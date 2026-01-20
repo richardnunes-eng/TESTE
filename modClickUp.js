@@ -1,6 +1,6 @@
 /**
  * ==============================================================================
- * MÓDULO: modClickUp.gs (VERSÃO 2.1 - CORRIGIDO)
+ * MÓDULO: modClickUp.gs (VERSÃO 2.3 - ACENTOS PRESERVADOS)
  * ==============================================================================
  * ✅ Sem filtro de unidade - puxa TUDO
  * ✅ Ignora apenas: SINISTRO, CANCELADO
@@ -9,7 +9,7 @@
  * ✅ Data mínima: 1 de dezembro de 2024 (corrigido)
  * ✅ Funções faltantes implementadas
  * ✅ Token seguro usando PropertiesService
- * ✅ Remove emojis e caracteres especiais dos cabeçalhos
+ * ✅ Remove emojis mas preserva acentos e pontuações (lógica VBA)
  * ==============================================================================
  */
 
@@ -27,7 +27,7 @@ function getClickUpToken() {
 const BASE_URL = "https://api.clickup.com/api/v2/list/";
 
 // ✅ DATA MÍNIMA - 1 de Dezembro de 2024 (corrigido)
-const DATA_MINIMA_CLICKUP = new Date("2024-12-01T00:00:00").getTime();
+const DATA_MINIMA_CLICKUP = new Date("2026-01-19T00:00:00").getTime();
 const SYNC_OVERLAP_MS = 10 * 60 * 1000; // overlap para evitar perda por fuso/latencia
 
 // ✅ STATUS IGNORADOS (não puxa esses)
@@ -63,7 +63,7 @@ const REGEX_EMOJI = /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD8
 // ============================================================================
 function ExecutarIntegracaoMestre() {
   console.time("⏱️ TOTAL ClickUp");
-  console.log("🚀 INICIANDO SYNC CLICKUP (v2.1 - Corrigido)");
+  console.log("🚀 INICIANDO SYNC CLICKUP (v2.3 - Acentos Preservados)");
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const scriptProps = PropertiesService.getScriptProperties();
@@ -494,7 +494,7 @@ function salvarNaPlanilha(ss, nomeAba, listaFinal, campos, linhasOriginais) {
 }
 
 // ============================================================================
-// HELPERS
+// HELPERS - CORRIGIDOS PARA PRESERVAR PONTUAÇÕES
 // ============================================================================
 function converterParaObjetos(values) {
   if (!values || values.length < 2) return [];
@@ -539,20 +539,42 @@ function converterParaObjetos(values) {
 
 function removerEmojis(texto) {
   if (!texto) return "";
-  return texto.toString()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // ✅ Remove acentos
-    .replace(REGEX_EMOJI, '') // Remove emojis
-    .replace(/[^\w\s\-\(\)\[\]]/g, '') // Remove caracteres especiais exceto letras, números, espaços, hífens e parênteses
+  
+  let novoTxt = "";
+  const str = texto.toString();
+  
+  // Baseado na lógica VBA: manter apenas caracteres ASCII estendido (0-255)
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charAt(i);
+    const code = ch.charCodeAt(0);
+    
+    if (code >= 0 && code <= 255) {
+      novoTxt += ch;
+    }
+  }
+  
+  return novoTxt
     .replace(/\s+/g, ' ') // Normaliza espaços
     .trim();
 }
 
 function limparNomeColuna(nome) {
   if (!nome) return "";
-  return nome.toString()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // ✅ Remove acentos
-    .replace(REGEX_EMOJI, '') // Remove emojis
-    .replace(/[^\w\s\-\(\)\[\]\.]/g, '') // Permite também pontos
+  
+  let novoNome = "";
+  const str = nome.toString();
+  
+  // Baseado na lógica VBA: manter apenas caracteres ASCII estendido (0-255)
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charAt(i);
+    const code = ch.charCodeAt(0);
+    
+    if (code >= 0 && code <= 255) {
+      novoNome += ch;
+    }
+  }
+  
+  return novoNome
     .replace(/\s+/g, ' ') // Normaliza espaços
     .replace(/^\s+|\s+$/g, '') // Remove espaços das bordas
     .replace(/^[\d\-\.]+$/, 'Campo_' + nome) // Se for só números, adiciona prefixo
@@ -759,7 +781,7 @@ function testarLimpezaColunas() {
     ""
   ];
   
-  console.log("=== TESTE DE LIMPEZA DE COLUNAS ===");
+  console.log("=== TESTE DE LIMPEZA DE COLUNAS (v2.3) ===");
   exemplos.forEach(exemplo => {
     const limpo = limparNomeColuna(exemplo);
     console.log(`"${exemplo}" → "${limpo}"`);
